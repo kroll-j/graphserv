@@ -1,0 +1,22 @@
+# Message template file for the graphserv program.
+# Copyright (C) Wikimedia Deutschland, created by Johannes Kroll in 2011
+# This file is distributed under the same license as the graphserv package.
+# Johannes Kroll <removetheanimal:jkroll@lavabitgiraffe.com>, 2011.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: graphserv\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2011-05-16 16:42+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/main.cpp:19
+msgid "Hello world!"
+msgstr ""

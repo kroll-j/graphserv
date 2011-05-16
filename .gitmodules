@@ -1,0 +1,3 @@
+[submodule "graphcore"]
+	path = graphcore
+	url = git://github.com/jkroll20/graphcore.git
