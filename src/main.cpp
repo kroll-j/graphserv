@@ -4,8 +4,10 @@
 #include <libintl.h>
 #include <iostream>
 #include <vector>
+#include <map>
 #include <stdint.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <string>
 #include <cstring>
 #include <cstdlib>
@@ -15,10 +17,30 @@
 #include <errno.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/select.h>
+#include <netinet/in.h>
 #include <sys/wait.h>
 
 #include "clibase.h"
 
+
+#define DEFAULT_PORT    6666
+#define LISTEN_BACKLOG  100
+
+
+enum AccessLevel
+{
+    ACCESS_READ= 0,
+    ACCESS_WRITE,
+    ACCESS_ADMIN
+};
+
+enum ConnectionType
+{
+    CONN_TCP= 0,
+    CONN_HTTP
+};
 
 
 
@@ -42,7 +64,7 @@ class ServCmd: public CliCommand
 class CoreInstance
 {
     public:
-        CoreInstance()
+        CoreInstance(uint32_t _id): instanceID(_id)
         {
         }
 
@@ -82,8 +104,8 @@ class CoreInstance
                 close(pipeToCore[0]);
                 close(pipeFromCore[1]);
 
-                FILE *toCore= fdopen(pipeToCore[1], "w");
-                FILE *fromCore= fdopen(pipeFromCore[0], "r");
+                toCore= fdopen(pipeToCore[1], "w");
+                fromCore= fdopen(pipeFromCore[0], "r");
 
                 setlinebuf(toCore);
 
@@ -111,7 +133,7 @@ class CoreInstance
                 else    // fgets() failed
                 {
                     int status;
-                    pid_t wpid= waitpid(pid, &status, 0);
+                    waitpid(pid, &status, 0);
                     if(WIFSIGNALED(status))
                         setLastError(_("child process terminated by signal"));
                     else if(WIFEXITED(status))
@@ -127,20 +149,215 @@ class CoreInstance
                     return false;
                 }
             }
-            return false; // make compiler happy.
+            return false; // never reached. make compiler happy.
         }
 
         string getLastError() { return lastError; }
 
         void setLastError(string str) { lastError= str; }
 
+        uint32_t getID() { return instanceID; }
+        string getName() { return format("Core%02u", instanceID); }
+        pid_t getPid() { return pid; }
+        int getReadFd() { return pipeFromCore[0]; }
+
     private:
+        uint32_t instanceID;
         string lastError;
 
+        pid_t pid;
         int pipeToCore[2];      // writable from server
         int pipeFromCore[2];    // writable from core
-        pid_t pid;
+        FILE *toCore;
+        FILE *fromCore;
 };
+
+struct SessionContext
+{
+    uint32_t clientID;
+    AccessLevel accessLevel;
+    ConnectionType connectionType;
+    uint32_t coreID;    // non-zero if connected to a core instance
+    int sockfd;
+
+    SessionContext(uint32_t cID, int sock, ConnectionType connType= CONN_TCP):
+        clientID(cID), accessLevel(ACCESS_ADMIN/*XXX*/), connectionType(connType), coreID(0), sockfd(sock)
+    {
+
+    }
+};
+
+
+void setnonblocking(int sock)
+{
+	int opts;
+
+	opts = fcntl(sock,F_GETFL);
+	if (opts < 0) {
+		perror("fcntl(F_GETFL)");
+		exit(EXIT_FAILURE);
+	}
+	opts = (opts | O_NONBLOCK);
+	if (fcntl(sock,F_SETFL,opts) < 0) {
+		perror("fcntl(F_SETFL)");
+		exit(EXIT_FAILURE);
+	}
+	return;
+}
+
+class Graphserv
+{
+    public:
+        Graphserv()
+        {
+        }
+
+        bool run()
+        {
+            int listensock= socket(AF_INET, SOCK_STREAM, 0);
+            if(listensock==-1) { perror("socket()"); return false; }
+
+           /*************************************************************/
+           /* Allow socket descriptor to be reuseable                   */
+           /*************************************************************/
+           int on= 1;
+           int rc = setsockopt(listensock, SOL_SOCKET,  SO_REUSEADDR, (char *)&on, sizeof(on));
+           if (rc < 0)
+           {
+              perror("setsockopt() failed");
+              close(listensock);
+              return false;
+           }
+        //   /*************************************************************/
+        //   /* Set socket to be non-blocking.  All of the sockets for    */
+        //   /* the incoming connections will also be non-blocking since  */
+        //   /* they will inherit that state from the listening socket.   */
+        //   /*************************************************************/
+        //   rc = ioctl(listensock, FIONBIO, (char *)&on);
+        //   if (rc < 0)
+        //   {
+        //      perror("ioctl() failed");
+        //      close(listensock);
+        //      exit(-1);
+        //   }
+
+            struct sockaddr_in sa;
+            memset(&sa, 0, sizeof(sa));
+            sa.sin_family= AF_INET;
+            sa.sin_addr.s_addr= htonl(INADDR_ANY);
+            sa.sin_port= htons(DEFAULT_PORT);
+            if(bind(listensock, (sockaddr*)&sa, sizeof(sa))<0)
+            {
+                perror("bind()");
+                close(listensock);
+                return false;
+            }
+
+            if(listen(listensock, LISTEN_BACKLOG)<0)
+            {
+                perror("listen()");
+                close(listensock);
+                return false;
+            }
+
+//            sockaddr saIn;
+//            socklen_t saInSize;
+//            accept(listensock, (sockaddr*)&saIn, &saInSize);
+
+            fd_set readfds, exceptfds;
+
+            int maxfd;
+
+            puts("main loop");
+            while(true)
+            {
+                FD_ZERO(&readfds);
+
+                maxfd= 0;
+
+                FD_SET(listensock, &readfds);
+                maxfd= listensock;
+
+                for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
+                {
+                    int sockfd= i->second->sockfd;
+                    FD_SET(sockfd, &readfds);
+                    if(sockfd>maxfd) maxfd= sockfd;
+                }
+
+                int r= select(maxfd+1, &readfds, 0, 0, 0);
+                if(r<0) { perror("select()"); return false; }
+//                printf("select: %d\n", r);
+
+                if(FD_ISSET(listensock, &readfds))
+                {
+                    int newConnection= accept(listensock, 0, 0);
+                    if(newConnection<0)
+                    {
+//                        if(errno!=EWOULDBLOCK)
+                        {
+                            perror("accept()");
+                            return false;
+                        }
+                    }
+                    // add new connection
+                    printf("new connection, socket=%d\n", newConnection);
+                    SessionContext *newSession= createSession(newConnection, CONN_TCP);
+                }
+
+                for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
+                {
+                    SessionContext &sc= *i->second;
+                    int sockfd= sc.sockfd;
+                    if(FD_ISSET(sockfd, &readfds))
+                    {
+                        char buf[1024];
+                        ssize_t sz= recv(sockfd, buf, sizeof(buf), 0);
+                        if(sz==0)
+                        {
+                            printf("client %d has closed the connection\n", sc.clientID);
+                            removeSession(sc.clientID);
+
+                        }
+                        else
+                        {
+                            printf("%d> ", sc.clientID); fwrite(buf, sz, 1, stdout); fflush(stdout);
+                            write(sockfd, buf, sz);
+                        }
+                    }
+                }
+            }
+
+
+            return true;
+        }
+
+    private:
+        static uint32_t coreIDCounter;
+        static uint32_t sessionIDCounter;
+
+        map<uint32_t, CoreInstance*> coreInstances;
+        map<uint32_t, SessionContext*> sessionContexts;
+
+        SessionContext *createSession(int sock, ConnectionType connType= CONN_TCP)
+        {
+            uint32_t newID= ++sessionIDCounter;
+            SessionContext *newSession= new SessionContext(newID, sock, connType);
+            sessionContexts.insert( pair<uint32_t,SessionContext*>(newID, newSession) );
+            return newSession;
+        }
+
+        bool removeSession(uint32_t sessionID)
+        {
+            map<uint32_t,SessionContext*>::iterator it= sessionContexts.find(sessionID);
+            if(it!=sessionContexts.end())
+                sessionContexts.erase(it);
+        }
+};
+
+uint32_t Graphserv::coreIDCounter= 0;
+uint32_t Graphserv::sessionIDCounter= 0;
+
 
 
 void sigchld_handler(int signum)
@@ -159,9 +376,12 @@ int main()
     sa.sa_handler= sigchld_handler;
     sigaction(SIGCHLD, &sa, 0);
 
-    CoreInstance test;
-    if(!test.startCore())
-        cout << FAIL_STR << " " << test.getLastError() << endl;
+//    CoreInstance test(0);
+//    if(!test.startCore())
+//        cout << FAIL_STR << " " << test.getLastError() << endl;
+
+    Graphserv s;
+    s.run();
 
     return 0;
 }
