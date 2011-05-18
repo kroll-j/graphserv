@@ -3,11 +3,13 @@
 	<FileVersion major="1" minor="6" />
 	<Project>
 		<Option title="graphserv" />
+		<Option makefile_is_custom="1" />
+		<Option execution_dir="/home/johannes/code/graphserv/" />
 		<Option pch_mode="2" />
 		<Option compiler="gcc" />
 		<Build>
 			<Target title="Debug">
-				<Option output="../graphserv" prefix_auto="1" extension_auto="1" />
+				<Option output="../graphserv.dbg" prefix_auto="1" extension_auto="0" />
 				<Option working_dir="../" />
 				<Option object_output="../obj/cbDebug" />
 				<Option type="1" />
@@ -17,7 +19,7 @@
 				</Compiler>
 			</Target>
 			<Target title="Release">
-				<Option output="../graphserv" prefix_auto="1" extension_auto="1" />
+				<Option output="../graphserv" prefix_auto="1" extension_auto="0" />
 				<Option working_dir="../" />
 				<Option object_output="../obj/cbRelease/" />
 				<Option type="1" />
@@ -35,6 +37,9 @@
 			<Add option="-fexceptions" />
 			<Add directory="../graphcore/src" />
 		</Compiler>
+		<ExtraCommands>
+			<Add before="cp /home/johannes/code/graphcore/src/* /home/johannes/code/graphserv/graphcore/src/" />
+		</ExtraCommands>
 		<Unit filename="../src/main.cpp" />
 		<Extensions>
 			<code_completion />

@@ -6,9 +6,11 @@
 #include <vector>
 #include <stdint.h>
 #include <unistd.h>
+#include <string>
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
+#include <stdarg.h>
 #include <algorithm>
 #include <errno.h>
 #include <signal.h>
@@ -44,7 +46,7 @@ class CoreInstance
         {
         }
 
-        bool startCore(const char *command= "./graphcor e/graphcore")
+        bool startCore(const char *command= "./graphcore/graphcore")
         {
             if(pipe(pipeToCore)==-1 || pipe(pipeFromCore)==-1)
             {
@@ -58,8 +60,7 @@ class CoreInstance
                 setLastError(string("fork(): ") + strerror(errno));
                 return false;
             }
-
-            if(pid==0)
+            else if(pid==0)
             {
                 // child process (core)
 
@@ -72,7 +73,7 @@ class CoreInstance
                 setlinebuf(stdout);
 
                 if(execl(command, command, NULL)==-1)
-                    exit(102);  // couldn't exec child process
+                    exit(102);  // couldn't exec()
             }
             else
             {
@@ -86,30 +87,47 @@ class CoreInstance
 
                 setlinebuf(toCore);
 
-                // --- testing ---
-
-                fprintf(toCore, "help\n");
-//                fprintf(toCore, "shutdown\n");
                 char line[1024];
-                while(fgets(line, 1024, fromCore))
+
+                fprintf(toCore, "protocol-version\n");
+                if(fgets(line, 1024, fromCore))
                 {
-                    printf("core> %s", line);
-//                    if(strlen(line)<2)
-//                        break;
+                    chomp(line);
+                    if(strncmp(SUCCESS_STR, line, strlen(SUCCESS_STR))!=0)
+                    {
+                        setLastError(_("core replied: ") + string(line));
+                        return false;
+                    }
+                    char *coreProtocolVersion= line + strlen(SUCCESS_STR);
+                    while(isspace(*coreProtocolVersion) && *coreProtocolVersion) coreProtocolVersion++;
+                    if(strcmp(coreProtocolVersion, stringify(PROTOCOL_VERSION))!=0)
+                    {
+                        setLastError(string(_("protocol version mismatch (server: ")) +
+                                     stringify(PROTOCOL_VERSION) + " core: " + coreProtocolVersion + ")");
+                        return false;
+                    }
+                    return true;
                 }
-
-                if(feof(fromCore))
-                    puts("eof");
-
-                int status;
-                pid_t wpid= waitpid(pid, &status, 0);
-                if(WIFEXITED(status))
+                else    // fgets() failed
                 {
-                    printf("child exited with status %d\n", WEXITSTATUS(status));
+                    int status;
+                    pid_t wpid= waitpid(pid, &status, 0);
+                    if(WIFSIGNALED(status))
+                        setLastError(_("child process terminated by signal"));
+                    else if(WIFEXITED(status))
+                    {
+                        int estatus= WEXITSTATUS(status);
+                        setLastError(string(_("child process exited: ")) +
+                                     (estatus==101? "setup failed.":
+                                      estatus==102? string("couldn't exec() '") + command + "'.":
+                                      format("unknown error code %d", estatus)) );
+                    }
+                    else
+                       setLastError("child process terminated");
                     return false;
                 }
             }
-            return true;
+            return false; // make compiler happy.
         }
 
         string getLastError() { return lastError; }
@@ -127,7 +145,7 @@ class CoreInstance
 
 void sigchld_handler(int signum)
 {
-    puts("sigchld received");
+//    puts("sigchld received");
 }
 
 
@@ -143,7 +161,7 @@ int main()
 
     CoreInstance test;
     if(!test.startCore())
-        cout << test.getLastError() << endl;
+        cout << FAIL_STR << " " << test.getLastError() << endl;
 
     return 0;
 }
