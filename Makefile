@@ -1,15 +1,18 @@
 CCFLAGS=-Wall -Igraphcore/src
-LDFLAGS=-lreadline
+LDFLAGS=
 
 all: 		Release Debug
 
 Release:	graphserv
 Debug:		graphserv.dbg
 
-graphserv:	src/main.cpp graphcore/src/*.h
+graphcore:	#
+		make -C graphcore all
+
+graphserv:	src/main.cpp graphcore/src/*.h graphcore
 		g++ $(CCFLAGS) -O3 -fexpensive-optimizations src/main.cpp $(LDFLAGS) -ographserv
 
-graphserv.dbg:	src/main.cpp graphcore/src/*.h
+graphserv.dbg:	src/main.cpp graphcore/src/*.h graphcore
 		g++ $(CCFLAGS) -DDEBUG_COMMANDS -ggdb src/main.cpp $(LDFLAGS) -ographserv.dbg
 
 # updatelang: update the language files
