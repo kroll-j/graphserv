@@ -179,30 +179,36 @@ struct SessionContext
     ConnectionType connectionType;
     uint32_t coreID;    // non-zero if connected to a core instance
     int sockfd;
+    string linebuf;
+
 
     SessionContext(uint32_t cID, int sock, ConnectionType connType= CONN_TCP):
         clientID(cID), accessLevel(ACCESS_ADMIN/*XXX*/), connectionType(connType), coreID(0), sockfd(sock)
     {
+    }
 
+    ~SessionContext()
+    {
+        close(sockfd);
     }
 };
 
 
-void setnonblocking(int sock)
+static bool setNonblocking(int sock)
 {
-	int opts;
-
-	opts = fcntl(sock,F_GETFL);
-	if (opts < 0) {
+	int opts= fcntl(sock, F_GETFL);
+	if(opts<0)
+    {
 		perror("fcntl(F_GETFL)");
-		exit(EXIT_FAILURE);
+		return false;
 	}
-	opts = (opts | O_NONBLOCK);
-	if (fcntl(sock,F_SETFL,opts) < 0) {
+	opts|= O_NONBLOCK;
+	if(fcntl(sock,F_SETFL,opts)<0)
+	{
 		perror("fcntl(F_SETFL)");
-		exit(EXIT_FAILURE);
+		return false;
 	}
-	return;
+	return true;
 }
 
 class Graphserv
@@ -228,18 +234,8 @@ class Graphserv
               close(listensock);
               return false;
            }
-        //   /*************************************************************/
-        //   /* Set socket to be non-blocking.  All of the sockets for    */
-        //   /* the incoming connections will also be non-blocking since  */
-        //   /* they will inherit that state from the listening socket.   */
-        //   /*************************************************************/
-        //   rc = ioctl(listensock, FIONBIO, (char *)&on);
-        //   if (rc < 0)
-        //   {
-        //      perror("ioctl() failed");
-        //      close(listensock);
-        //      exit(-1);
-        //   }
+
+            if(!setNonblocking(listensock)) { close(listensock); return false; }
 
             struct sockaddr_in sa;
             memset(&sa, 0, sizeof(sa));
@@ -260,9 +256,6 @@ class Graphserv
                 return false;
             }
 
-//            sockaddr saIn;
-//            socklen_t saInSize;
-//            accept(listensock, (sockaddr*)&saIn, &saInSize);
 
             fd_set readfds, exceptfds;
 
@@ -287,7 +280,6 @@ class Graphserv
 
                 int r= select(maxfd+1, &readfds, 0, 0, 0);
                 if(r<0) { perror("select()"); return false; }
-//                printf("select: %d\n", r);
 
                 if(FD_ISSET(listensock, &readfds))
                 {
@@ -311,23 +303,38 @@ class Graphserv
                     int sockfd= sc.sockfd;
                     if(FD_ISSET(sockfd, &readfds))
                     {
-                        char buf[1024];
+                        const size_t BUFSIZE= 1024;
+                        char buf[BUFSIZE];
                         ssize_t sz= recv(sockfd, buf, sizeof(buf), 0);
                         if(sz==0)
                         {
                             printf("client %d has closed the connection\n", sc.clientID);
                             removeSession(sc.clientID);
-
+                        }
+                        else if(sz<0)
+                        {
+                            fprintf(stderr, "i/o error, client %d: %s\n", sc.clientID, strerror(errno));
+                            removeSession(sc.clientID);
                         }
                         else
                         {
-                            printf("%d> ", sc.clientID); fwrite(buf, sz, 1, stdout); fflush(stdout);
-                            write(sockfd, buf, sz);
+                            for(ssize_t i= 0; i<sz; i++)
+                            {
+                                char c= buf[i];
+                                if(c=='\r') continue;   // someone is feeding us DOS newlines?
+                                sc.linebuf+= c;
+                                if(c=='\n')
+                                {
+                                    printf("%d> %s", sc.clientID, sc.linebuf.c_str());
+                                    string tmp= format("%d < %s", sc.clientID, sc.linebuf.c_str());
+                                    write(sockfd, tmp.c_str(), tmp.size());
+                                    sc.linebuf.clear();
+                                }
+                            }
                         }
                     }
                 }
             }
-
 
             return true;
         }
@@ -351,7 +358,10 @@ class Graphserv
         {
             map<uint32_t,SessionContext*>::iterator it= sessionContexts.find(sessionID);
             if(it!=sessionContexts.end())
+            {
+                delete(it->second);
                 sessionContexts.erase(it);
+            }
         }
 };
 
