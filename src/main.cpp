@@ -52,35 +52,32 @@ class ServCmd: public CliCommand
 class ServCli: public Cli
 {
     public:
-        ServCli();
+        ServCli(class Graphserv &_app);
 
         void addCommand(ServCmd *cmd)
-        {
-            commands.push_back(cmd);
-        }
+        { commands.push_back(cmd); }
 
         CommandStatus execute(string command, class SessionContext &sc);
 
-
     private:
-        vector<ServCmd*> commands;
+        class Graphserv &app;
 };
 
 
 // cli commands which do not return any data.
-class CliCommand_RTVoid: public ServCmd
+class ServCmd_RTVoid: public ServCmd
 {
     public:
         ReturnType getReturnType() { return RT_NONE; }
-        virtual CommandStatus execute(vector<string> words, class ServCli &cli, class SessionContext &sc)= 0;
+        virtual CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)= 0;
 };
 
 // cli commands which return some other data set. execute() must write the result to the client.
-class CliCommand_RTOther: public ServCmd
+class ServCmd_RTOther: public ServCmd
 {
     public:
         ReturnType getReturnType() { return RT_OTHER; }
-        virtual CommandStatus execute(vector<string> words, class ServCli &cli, class SessionContext &sc)= 0;
+        virtual CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)= 0;
 };
 
 
@@ -183,13 +180,15 @@ class CoreInstance
         void setLastError(string str) { lastError= str; }
 
         uint32_t getID() { return instanceID; }
-        string getName() { return format("Core%02u", instanceID); }
+        string getName() { return (name.length()? name: format("Core%02u", instanceID)); }
+        void setName(string nm) { name= nm; }
         pid_t getPid() { return pid; }
         int getReadFd() { return pipeFromCore[0]; }
 
     private:
         uint32_t instanceID;
         string lastError;
+        string name;
 
         pid_t pid;
         int pipeToCore[2];      // writable from server
@@ -213,6 +212,7 @@ struct SessionContext
     {
         if(!(sockFile= fdopen(sockfd, "w")))
            perror("fdopen"), abort();
+        setlinebuf(sockFile);
     }
 
     ~SessionContext()
@@ -242,7 +242,7 @@ static bool setNonblocking(int sock)
 class Graphserv
 {
     public:
-        Graphserv()
+        Graphserv(): cli(*this)
         {
         }
 
@@ -363,12 +363,29 @@ class Graphserv
             return true;
         }
 
+        // creates a new instance, without starting it.
+        CoreInstance *createCoreInstance(string name= "")
+        {
+            CoreInstance *inst= new CoreInstance(++coreIDCounter);
+            inst->setName(name);
+            coreInstances.insert( pair<uint32_t,CoreInstance*>(coreIDCounter, inst) );
+            return inst;
+        }
+
+        // removes a core instance from the list and deletes it
+        void removeCoreInstance(CoreInstance *core)
+        {
+            map<uint32_t,CoreInstance*>::iterator it= coreInstances.find(core->getID());
+            if(it!=coreInstances.end()) coreInstances.erase(it);
+            delete core;
+        }
+
     private:
         static uint32_t coreIDCounter;
         static uint32_t sessionIDCounter;
 
-        map<uint32_t, CoreInstance*> coreInstances;
-        map<uint32_t, SessionContext*> sessionContexts;
+        map<uint32_t,CoreInstance*> coreInstances;
+        map<uint32_t,SessionContext*> sessionContexts;
 
         ServCli cli;
 
@@ -406,12 +423,58 @@ uint32_t Graphserv::sessionIDCounter= 0;
 
 CommandStatus ServCli::execute(string command, class SessionContext &sc)
 {
-
+    vector<string> words= splitString(command.c_str());
+    if(words.empty()) return CMD_SUCCESS;
+    ServCmd *cmd= (ServCmd*)findCommand(words[0]);
+    if(!cmd)
+    {
+        fprintf(sc.sockFile, FAIL_STR);
+        fprintf(sc.sockFile, _(" no such command.\n"));
+        fflush(sc.sockFile);
+        return CMD_FAILURE;
+    }
+    CommandStatus ret;
+    switch(cmd->getReturnType())
+    {
+        case CliCommand::RT_OTHER:
+            ret= ((ServCmd_RTOther*)cmd)->execute(words, app, sc);
+            break;
+        case CliCommand::RT_NONE:
+            ret= ((ServCmd_RTVoid*)cmd)->execute(words, app, sc);
+            fprintf(sc.sockFile, cmd->getStatusMessage().c_str());
+            fflush(sc.sockFile);
+            break;
+    }
+    return ret;
 }
 
-ServCli::ServCli()
+
+class ccCreateGraph: public ServCmd_RTVoid
 {
-    // addCommand(...)
+    public:
+        string getName() { return "create-graph"; }
+        string getSynopsis() { return getName() + " graphname"; }
+        string getHelpText() { return _("create a named graphcore instance."); }
+
+        CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
+        {
+            if(words.size()!=2)
+            {
+                syntaxError();
+                return CMD_FAILURE;
+            }
+            CoreInstance *core= app.createCoreInstance(words[1]);
+            if(!core) { cliFailure(_("Graphserv::createCoreInstance() failed.\n")); return CMD_FAILURE; }
+            if(!core->startCore()) { cliFailure("startCore(): %s\n", core->getLastError().c_str()); app.removeCoreInstance(core); return CMD_FAILURE; }
+            cliSuccess(_("spawned pid %d.\n"), core->getPid());
+            return CMD_SUCCESS;
+        }
+
+};
+
+ServCli::ServCli(Graphserv &_app): app(_app)
+{
+    addCommand(new ccCreateGraph());
 }
 
 
