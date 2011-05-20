@@ -44,21 +44,47 @@ enum ConnectionType
 
 
 
-class ServCli: public Cli
-{
-    public:
-        ServCli()
-        {
-        }
-
-        CommandStatus execute(char *command)
-        {
-        };
-};
-
 class ServCmd: public CliCommand
 {
 };
+
+
+class ServCli: public Cli
+{
+    public:
+        ServCli();
+
+        void addCommand(ServCmd *cmd)
+        {
+            commands.push_back(cmd);
+        }
+
+        CommandStatus execute(string command, class SessionContext &sc);
+
+
+    private:
+        vector<ServCmd*> commands;
+};
+
+
+// cli commands which do not return any data.
+class CliCommand_RTVoid: public ServCmd
+{
+    public:
+        ReturnType getReturnType() { return RT_NONE; }
+        virtual CommandStatus execute(vector<string> words, class ServCli &cli, class SessionContext &sc)= 0;
+};
+
+// cli commands which return some other data set. execute() must write the result to the client.
+class CliCommand_RTOther: public ServCmd
+{
+    public:
+        ReturnType getReturnType() { return RT_OTHER; }
+        virtual CommandStatus execute(vector<string> words, class ServCli &cli, class SessionContext &sc)= 0;
+};
+
+
+
 
 
 class CoreInstance
@@ -180,16 +206,18 @@ struct SessionContext
     uint32_t coreID;    // non-zero if connected to a core instance
     int sockfd;
     string linebuf;
-
+    FILE *sockFile;
 
     SessionContext(uint32_t cID, int sock, ConnectionType connType= CONN_TCP):
         clientID(cID), accessLevel(ACCESS_ADMIN/*XXX*/), connectionType(connType), coreID(0), sockfd(sock)
     {
+        if(!(sockFile= fdopen(sockfd, "w")))
+           perror("fdopen"), abort();
     }
 
     ~SessionContext()
     {
-        close(sockfd);
+        fclose(sockFile);
     }
 };
 
@@ -223,17 +251,15 @@ class Graphserv
             int listensock= socket(AF_INET, SOCK_STREAM, 0);
             if(listensock==-1) { perror("socket()"); return false; }
 
-           /*************************************************************/
-           /* Allow socket descriptor to be reuseable                   */
-           /*************************************************************/
-           int on= 1;
-           int rc = setsockopt(listensock, SOL_SOCKET,  SO_REUSEADDR, (char *)&on, sizeof(on));
-           if (rc < 0)
-           {
+            // Allow socket descriptor to be reuseable
+            int on= 1;
+            int rc= setsockopt(listensock, SOL_SOCKET,  SO_REUSEADDR, (char *)&on, sizeof(on));
+            if (rc < 0)
+            {
               perror("setsockopt() failed");
               close(listensock);
               return false;
-           }
+            }
 
             if(!setNonblocking(listensock)) { close(listensock); return false; }
 
@@ -325,9 +351,7 @@ class Graphserv
                                 sc.linebuf+= c;
                                 if(c=='\n')
                                 {
-                                    printf("%d> %s", sc.clientID, sc.linebuf.c_str());
-                                    string tmp= format("%d < %s", sc.clientID, sc.linebuf.c_str());
-                                    write(sockfd, tmp.c_str(), tmp.size());
+                                    lineFromClient(string(sc.linebuf), sc);
                                     sc.linebuf.clear();
                                 }
                             }
@@ -346,6 +370,8 @@ class Graphserv
         map<uint32_t, CoreInstance*> coreInstances;
         map<uint32_t, SessionContext*> sessionContexts;
 
+        ServCli cli;
+
         SessionContext *createSession(int sock, ConnectionType connType= CONN_TCP)
         {
             uint32_t newID= ++sessionIDCounter;
@@ -363,10 +389,30 @@ class Graphserv
                 sessionContexts.erase(it);
             }
         }
+
+        void lineFromClient(string line, SessionContext &sc)
+        {
+//            printf("%d> %s", sc.clientID, sc.linebuf.c_str());
+//            string tmp= format("%d < %s", sc.clientID, sc.linebuf.c_str());
+//            write(sc.sockfd, tmp.c_str(), tmp.size());
+            cli.execute(line, sc);
+        }
 };
 
 uint32_t Graphserv::coreIDCounter= 0;
 uint32_t Graphserv::sessionIDCounter= 0;
+
+
+
+CommandStatus ServCli::execute(string command, class SessionContext &sc)
+{
+
+}
+
+ServCli::ServCli()
+{
+    // addCommand(...)
+}
 
 
 
