@@ -35,6 +35,8 @@ enum AccessLevel
     ACCESS_WRITE,
     ACCESS_ADMIN
 };
+static const char *gAccessLevelNames[]=
+    { "ACCESS_READ", "ACCESS_WRITE", "ACCESS_ADMIN" };
 
 enum ConnectionType
 {
@@ -46,6 +48,8 @@ enum ConnectionType
 
 class ServCmd: public CliCommand
 {
+    public:
+        virtual AccessLevel getAccessLevel() { return ACCESS_READ; }
 };
 
 
@@ -58,6 +62,7 @@ class ServCli: public Cli
         { commands.push_back(cmd); }
 
         CommandStatus execute(string command, class SessionContext &sc);
+        CommandStatus execute(class ServCmd *cmd, vector<string> &words, class SessionContext &sc);
 
     private:
         class Graphserv &app;
@@ -244,6 +249,7 @@ class Graphserv
     public:
         Graphserv(): cli(*this)
         {
+            initCoreCommandTable();
         }
 
         bool run()
@@ -363,6 +369,14 @@ class Graphserv
             return true;
         }
 
+        // find a named instance.
+        CoreInstance *findNamedInstance(string name)
+        {
+            for(map<uint32_t,CoreInstance*>::iterator it= coreInstances.begin(); it!=coreInstances.end(); it++)
+                if(it->second->getName()==name) return it->second;
+            return 0;
+        }
+
         // creates a new instance, without starting it.
         CoreInstance *createCoreInstance(string name= "")
         {
@@ -381,6 +395,13 @@ class Graphserv
         }
 
     private:
+        struct CoreCommandInfo
+        {
+            AccessLevel accessLevel;
+            string coreImpDetail;
+        };
+        map<string,CoreCommandInfo> coreCommandInfos;
+
         static uint32_t coreIDCounter;
         static uint32_t sessionIDCounter;
 
@@ -388,6 +409,26 @@ class Graphserv
         map<uint32_t,SessionContext*> sessionContexts;
 
         ServCli cli;
+
+        CoreCommandInfo *findCoreCommand(const string &name)
+        {
+            map<string,CoreCommandInfo>::iterator it= coreCommandInfos.find(name);
+            if(it!=coreCommandInfos.end()) return &it->second;
+            return 0;
+        }
+
+        void initCoreCommandTable()
+        {
+#define CORECOMMANDS_BEGIN
+#define CORECOMMANDS_END
+#define CORECOMMAND(name, level, imp...) ({ \
+    CoreCommandInfo cci= { level, #imp };         \
+    coreCommandInfos.insert( pair<string,CoreCommandInfo> (name, cci) ); })
+#include "corecommands.h"
+#undef CORECOMMANDS_BEGIN
+#undef CORECOMMANDS_END
+#undef CORECOMMAND
+        }
 
         SessionContext *createSession(int sock, ConnectionType connType= CONN_TCP)
         {
@@ -404,7 +445,9 @@ class Graphserv
             {
                 delete(it->second);
                 sessionContexts.erase(it);
+                return true;
             }
+            return false;
         }
 
         void lineFromClient(string line, SessionContext &sc)
@@ -412,7 +455,31 @@ class Graphserv
 //            printf("%d> %s", sc.clientID, sc.linebuf.c_str());
 //            string tmp= format("%d < %s", sc.clientID, sc.linebuf.c_str());
 //            write(sc.sockfd, tmp.c_str(), tmp.size());
-            cli.execute(line, sc);
+//            cli.execute(line, sc);
+
+            // if(sc connected && running command for this client accepts more data)
+            //      write data to coreinstance
+
+            vector<string> words= Cli::splitString(line.c_str());
+            if(words.empty()) return;
+            ServCmd *cmd= (ServCmd*)cli.findCommand(words[0]);
+            if(cmd) cli.execute(cmd, words, sc);
+
+//            else if(sc connected)
+//            {
+//                if(core-command found)
+//                {
+//                    if(has sufficient access level)
+//                        write command to instance
+//                    else
+//                        write error("insufficient access level");
+//                }
+//                else
+//                    write error("no such command");
+//
+//            }
+//            else
+//                write error("no such command");
         }
 };
 
@@ -433,6 +500,19 @@ CommandStatus ServCli::execute(string command, class SessionContext &sc)
         fflush(sc.sockFile);
         return CMD_FAILURE;
     }
+    return execute(cmd, words, sc);
+}
+
+CommandStatus ServCli::execute(ServCmd *cmd, vector<string> &words, SessionContext &sc)
+{
+    if(cmd->getAccessLevel() > sc.accessLevel)
+    {
+        fprintf(sc.sockFile, FAIL_STR);
+        fprintf(sc.sockFile, _(" insufficient access level (command needs %s, you have %s)\n"),
+                gAccessLevelNames[cmd->getAccessLevel()], gAccessLevelNames[sc.accessLevel]);
+        fflush(sc.sockFile);
+        return CMD_FAILURE;
+    }
     CommandStatus ret;
     switch(cmd->getReturnType())
     {
@@ -444,17 +524,23 @@ CommandStatus ServCli::execute(string command, class SessionContext &sc)
             fprintf(sc.sockFile, cmd->getStatusMessage().c_str());
             fflush(sc.sockFile);
             break;
+        default:
+            break;
     }
     return ret;
 }
 
+
+
+/////////////////////////////////////////// server commands ///////////////////////////////////////////
 
 class ccCreateGraph: public ServCmd_RTVoid
 {
     public:
         string getName() { return "create-graph"; }
         string getSynopsis() { return getName() + " graphname"; }
-        string getHelpText() { return _("create a named graphcore instance."); }
+        string getHelpText() { return _("create a named graphcore instance. [ADMIN]"); }
+        AccessLevel getAccessLevel() { return ACCESS_ADMIN; }
 
         CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
         {
@@ -463,6 +549,7 @@ class ccCreateGraph: public ServCmd_RTVoid
                 syntaxError();
                 return CMD_FAILURE;
             }
+            if(app.findNamedInstance(words[1])) { cliFailure(_("an instance with this name already exists.\n")); return CMD_FAILURE; }
             CoreInstance *core= app.createCoreInstance(words[1]);
             if(!core) { cliFailure(_("Graphserv::createCoreInstance() failed.\n")); return CMD_FAILURE; }
             if(!core->startCore()) { cliFailure("startCore(): %s\n", core->getLastError().c_str()); app.removeCoreInstance(core); return CMD_FAILURE; }
@@ -471,6 +558,33 @@ class ccCreateGraph: public ServCmd_RTVoid
         }
 
 };
+
+
+class ccUseGraph: public ServCmd_RTVoid
+{
+    public:
+        string getName() { return "use-graph"; }
+        string getSynopsis() { return getName() + " graphname"; }
+        string getHelpText() { return _("use a named graphcore instance."); }
+        AccessLevel getAccessLevel() { return ACCESS_READ; }
+
+        CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
+        {
+            if(words.size()!=2)
+            {
+                syntaxError();
+                return CMD_FAILURE;
+            }
+            if(sc.coreID) { cliFailure(_("already connected. switching instances is not currently supported.\n")); return CMD_FAILURE; }
+            CoreInstance *core= app.findNamedInstance(words[1]);
+            if(!core) { cliFailure(_("no such instance.\n")); return CMD_FAILURE; }
+            sc.coreID= core->getID();
+            cliSuccess(_("connected to pid %d.\n"), core->getPid());
+            return CMD_SUCCESS;
+        }
+
+};
+
 
 ServCli::ServCli(Graphserv &_app): app(_app)
 {
