@@ -6,13 +6,16 @@ all: 		Release Debug
 Release:	graphserv
 Debug:		graphserv.dbg
 
-graphcore:	#
-		make -C graphcore all
+graphcore/graphcore:	#
+		make -C graphcore Release
 
-graphserv:	src/main.cpp graphcore/src/*.h graphcore
+graphcore/graphcore.dbg:	#
+		make -C graphcore Debug
+
+graphserv:	src/main.cpp graphcore/src/*.h graphcore/graphcore
 		g++ $(CCFLAGS) -O3 -fexpensive-optimizations src/main.cpp $(LDFLAGS) -ographserv
 
-graphserv.dbg:	src/main.cpp graphcore/src/*.h graphcore
+graphserv.dbg:	src/main.cpp graphcore/src/*.h graphcore/graphcore
 		g++ $(CCFLAGS) -DDEBUG_COMMANDS -ggdb src/main.cpp $(LDFLAGS) -ographserv.dbg
 
 # updatelang: update the language files

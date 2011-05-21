@@ -464,6 +464,28 @@ class Graphserv
             if(words.empty()) return;
             ServCmd *cmd= (ServCmd*)cli.findCommand(words[0]);
             if(cmd) cli.execute(cmd, words, sc);
+            else if(sc.coreID)
+            {
+                CoreCommandInfo *cci= findCoreCommand(words[0]);
+                if(cci)
+                {
+                    if(sc.accessLevel>=cci->accessLevel)
+                    {
+                        // write command to instance
+                    }
+                    else
+                    {
+                        fprintf(sc.sockFile, FAIL_STR);
+                        fprintf(sc.sockFile, _(" insufficient access level (command needs %s, you have %s)\n"),
+                                gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]);
+                        fflush(sc.sockFile);
+                    }
+                }
+                else
+                    fprintf(sc.sockFile, _("%s no such command.\n"), FAIL_STR), fflush(sc.sockFile);
+            }
+            else
+                fprintf(sc.sockFile, _("%s no such command.\n"), FAIL_STR), fflush(sc.sockFile);
 
 //            else if(sc connected)
 //            {
