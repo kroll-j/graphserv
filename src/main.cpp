@@ -4,6 +4,7 @@
 #include <libintl.h>
 #include <iostream>
 #include <vector>
+#include <queue>
 #include <map>
 #include <stdint.h>
 #include <unistd.h>
@@ -86,14 +87,93 @@ class ServCmd_RTOther: public ServCmd
 };
 
 
+static bool setNonblocking(int sock)
+{
+	int opts= fcntl(sock, F_GETFL);
+	if(opts<0)
+    {
+		perror("fcntl(F_GETFL)");
+		return false;
+	}
+	opts|= O_NONBLOCK;
+	if(fcntl(sock,F_SETFL,opts)<0)
+	{
+		perror("fcntl(F_SETFL)");
+		return false;
+	}
+	return true;
+}
 
 
+class NonblockWriter
+{
+    public:
+        NonblockWriter(): fd(-1) {}
 
-class CoreInstance
+        void setWriteFd(int _fd) { fd= _fd; setNonblocking(fd); }
+
+        bool flush()
+        {
+            while(!buffer.empty())
+            {
+                if(!writeString(buffer.front())) return false;
+                buffer.pop();
+            }
+            return true;
+        }
+
+        bool writeBufferEmpty()
+        { return buffer.empty(); }
+
+        void write(const string s)
+        {
+            if( (!buffer.empty()) || (!writeString(s)) ) buffer.push(s);
+        }
+
+        void writef(const char *fmt, ...)
+        {
+            char c[2048];
+            va_list ap;
+            va_start(ap, fmt);
+            vsnprintf(c, sizeof(c), fmt, ap);
+            va_end(ap);
+            write(c);
+        }
+
+        virtual void writeFailed(int _errno)= 0;
+
+    private:
+        int fd;
+        queue<string> buffer;
+
+        bool writeString(const string s)
+        {
+            ssize_t sz= ::write(fd, s.data(), s.size());
+            if(sz!=s.size())
+            {
+                perror("write");
+
+                if( (errno!=EAGAIN)&&(errno!=EWOULDBLOCK) )
+                    writeFailed(errno);
+
+                return false;
+            }
+            return true;
+        }
+};
+
+
+class CoreInstance: public NonblockWriter
 {
     public:
         CoreInstance(uint32_t _id): instanceID(_id)
         {
+        }
+
+        void writeFailed(int _errno)
+        {
+            perror("write failed");
+            exit(1); //xxxxx
         }
 
         bool startCore(const char *command= "./graphcore/graphcore")
@@ -132,8 +212,8 @@ class CoreInstance
                 close(pipeToCore[0]);
                 close(pipeFromCore[1]);
 
-                toCore= fdopen(pipeToCore[1], "w");
-                fromCore= fdopen(pipeFromCore[0], "r");
+                FILE *toCore= fdopen(pipeToCore[1], "w");
+                FILE *fromCore= fdopen(pipeFromCore[0], "r");
 
                 setlinebuf(toCore);
 
@@ -156,6 +236,7 @@ class CoreInstance
                                      stringify(PROTOCOL_VERSION) + " core: " + coreProtocolVersion + ")");
                         return false;
                     }
+                    setWriteFd(pipeToCore[1]);
                     return true;
                 }
                 else    // fgets() failed
@@ -189,6 +270,7 @@ class CoreInstance
         void setName(string nm) { name= nm; }
         pid_t getPid() { return pid; }
         int getReadFd() { return pipeFromCore[0]; }
+        int getWriteFd() { return pipeToCore[1]; }
 
     private:
         uint32_t instanceID;
@@ -198,11 +280,9 @@ class CoreInstance
         pid_t pid;
         int pipeToCore[2];      // writable from server
         int pipeFromCore[2];    // writable from core
-        FILE *toCore;
-        FILE *fromCore;
 };
 
-struct SessionContext
+struct SessionContext: public NonblockWriter
 {
     uint32_t clientID;
     AccessLevel accessLevel;
@@ -210,39 +290,29 @@ struct SessionContext
     uint32_t coreID;    // non-zero if connected to a core instance
     int sockfd;
     string linebuf;
-    FILE *sockFile;
+//    FILE *sockFile;
 
     SessionContext(uint32_t cID, int sock, ConnectionType connType= CONN_TCP):
         clientID(cID), accessLevel(ACCESS_ADMIN/*XXX*/), connectionType(connType), coreID(0), sockfd(sock)
     {
-        if(!(sockFile= fdopen(sockfd, "w")))
-           perror("fdopen"), abort();
-        setlinebuf(sockFile);
+//        if(!(sockFile= fdopen(sockfd, "w")))
+//           perror("fdopen"), abort();
+//        setlinebuf(sockFile);
+        setWriteFd(sockfd);
     }
 
     ~SessionContext()
     {
-        fclose(sockFile);
+//        fclose(sockFile);
+        close(sockfd);
+    }
+
+    void writeFailed(int _errno)
+    {
+        perror("write failed"); // xxxxxxxx
     }
 };
 
-
-static bool setNonblocking(int sock)
-{
-	int opts= fcntl(sock, F_GETFL);
-	if(opts<0)
-    {
-		perror("fcntl(F_GETFL)");
-		return false;
-	}
-	opts|= O_NONBLOCK;
-	if(fcntl(sock,F_SETFL,opts)<0)
-	{
-		perror("fcntl(F_SETFL)");
-		return false;
-	}
-	return true;
-}
 
 class Graphserv
 {
@@ -262,9 +332,9 @@ class Graphserv
             int rc= setsockopt(listensock, SOL_SOCKET,  SO_REUSEADDR, (char *)&on, sizeof(on));
             if (rc < 0)
             {
-              perror("setsockopt() failed");
-              close(listensock);
-              return false;
+                perror("setsockopt() failed");
+                close(listensock);
+                return false;
             }
 
             if(!setNonblocking(listensock)) { close(listensock); return false; }
@@ -289,7 +359,7 @@ class Graphserv
             }
 
 
-            fd_set readfds, exceptfds;
+            fd_set readfds, writefds;
 
             int maxfd;
 
@@ -305,9 +375,18 @@ class Graphserv
 
                 for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
                 {
-                    int sockfd= i->second->sockfd;
-                    FD_SET(sockfd, &readfds);
-                    if(sockfd>maxfd) maxfd= sockfd;
+                    SessionContext *sc= i->second;
+                    fd_add(readfds, sc->sockfd, maxfd);
+                    if(!sc->writeBufferEmpty())
+                        fd_add(writefds, sc->sockfd, maxfd);
+                }
+
+                for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++ )
+                {
+                    CoreInstance *ci= i->second;
+                    fd_add(readfds, ci->getReadFd(), maxfd);
+                    if(!ci->writeBufferEmpty())
+                        fd_add(writefds, ci->getWriteFd(), maxfd);
                 }
 
                 int r= select(maxfd+1, &readfds, 0, 0, 0);
@@ -318,16 +397,19 @@ class Graphserv
                     int newConnection= accept(listensock, 0, 0);
                     if(newConnection<0)
                     {
-//                        if(errno!=EWOULDBLOCK)
-                        {
-                            perror("accept()");
+                        perror("accept()");
+                        if(errno!=EWOULDBLOCK)
                             return false;
-                        }
                     }
-                    // add new connection
-                    printf("new connection, socket=%d\n", newConnection);
-                    SessionContext *newSession= createSession(newConnection, CONN_TCP);
+                    else
+                    {
+                        // add new connection
+                        printf("new connection, socket=%d\n", newConnection);
+                        SessionContext *newSession= createSession(newConnection, CONN_TCP);
+                    }
                 }
+
+                vector<uint32_t> clientsToRemove;
 
                 for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
                 {
@@ -338,6 +420,47 @@ class Graphserv
                         const size_t BUFSIZE= 1024;
                         char buf[BUFSIZE];
                         ssize_t sz= recv(sockfd, buf, sizeof(buf), 0);
+                        if(sz==0)
+                        {
+                            printf("client %d has closed the connection\n", sc.clientID);
+                            clientsToRemove.push_back(sc.clientID);
+                        }
+                        else if(sz<0)
+                        {
+                            fprintf(stderr, "i/o error, client %d: %s\n", sc.clientID, strerror(errno));
+                            clientsToRemove.push_back(sc.clientID);
+                        }
+                        else
+                        {
+                            for(ssize_t i= 0; i<sz; i++)
+                            {
+                                char c= buf[i];
+                                if(c=='\r') continue;   // someone is feeding us DOS newlines?
+                                sc.linebuf+= c;
+                                if(c=='\n')
+                                {
+                                    lineFromClient(string(sc.linebuf), sc);
+                                    sc.linebuf.clear();
+                                }
+                            }
+                        }
+                    }
+                    if(FD_ISSET(sockfd, &writefds))
+                        sc.flush();
+                }
+
+                // remove outside of loop to avoid invalidating iterators
+                for(int i= 0; i<clientsToRemove.size(); i++)
+                    removeSession(clientsToRemove[i]);
+
+                for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++ )
+                {
+                    CoreInstance *ci= i->second;
+                    if(FD_ISSET(ci->getReadFd(), &readfds))
+                    {
+                        const size_t BUFSIZE= 1024;
+                        char buf[BUFSIZE];
+                        ssize_t sz= read(ci->getReadFd, buf, sizeof(buf), 0);
                         if(sz==0)
                         {
                             printf("client %d has closed the connection\n", sc.clientID);
@@ -410,6 +533,12 @@ class Graphserv
 
         ServCli cli;
 
+        void fd_add(fd_set &set, int fd, int &maxfd)
+        {
+            FD_SET(fd, &set);
+            if(fd>maxfd) maxfd= fd;
+        }
+
         CoreCommandInfo *findCoreCommand(const string &name)
         {
             map<string,CoreCommandInfo>::iterator it= coreCommandInfos.find(name);
@@ -457,6 +586,8 @@ class Graphserv
 //            write(sc.sockfd, tmp.c_str(), tmp.size());
 //            cli.execute(line, sc);
 
+            // check line for terminating colon ':'
+
             // if(sc connected && running command for this client accepts more data)
             //      write data to coreinstance
 
@@ -475,17 +606,16 @@ class Graphserv
                     }
                     else
                     {
-                        fprintf(sc.sockFile, FAIL_STR);
-                        fprintf(sc.sockFile, _(" insufficient access level (command needs %s, you have %s)\n"),
-                                gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]);
-                        fflush(sc.sockFile);
+                        sc.writef(FAIL_STR);
+                        sc.writef(_(" insufficient access level (command needs %s, you have %s)\n"),
+                                  gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]);
                     }
                 }
                 else
-                    fprintf(sc.sockFile, _("%s no such command.\n"), FAIL_STR), fflush(sc.sockFile);
+                    sc.writef(_("%s no such command.\n"), FAIL_STR);
             }
             else
-                fprintf(sc.sockFile, _("%s no such command.\n"), FAIL_STR), fflush(sc.sockFile);
+                sc.writef(_("%s no such command.\n"), FAIL_STR);
 
 //            else if(sc connected)
 //            {
@@ -517,9 +647,8 @@ CommandStatus ServCli::execute(string command, class SessionContext &sc)
     ServCmd *cmd= (ServCmd*)findCommand(words[0]);
     if(!cmd)
     {
-        fprintf(sc.sockFile, FAIL_STR);
-        fprintf(sc.sockFile, _(" no such command.\n"));
-        fflush(sc.sockFile);
+        sc.writef(FAIL_STR);
+        sc.writef(_(" no such command.\n"));
         return CMD_FAILURE;
     }
     return execute(cmd, words, sc);
@@ -529,10 +658,9 @@ CommandStatus ServCli::execute(ServCmd *cmd, vector<string> &words, SessionConte
 {
     if(cmd->getAccessLevel() > sc.accessLevel)
     {
-        fprintf(sc.sockFile, FAIL_STR);
-        fprintf(sc.sockFile, _(" insufficient access level (command needs %s, you have %s)\n"),
-                gAccessLevelNames[cmd->getAccessLevel()], gAccessLevelNames[sc.accessLevel]);
-        fflush(sc.sockFile);
+        sc.writef(FAIL_STR);
+        sc.writef(_(" insufficient access level (command needs %s, you have %s)\n"),
+                  gAccessLevelNames[cmd->getAccessLevel()], gAccessLevelNames[sc.accessLevel]);
         return CMD_FAILURE;
     }
     CommandStatus ret;
@@ -543,8 +671,7 @@ CommandStatus ServCli::execute(ServCmd *cmd, vector<string> &words, SessionConte
             break;
         case CliCommand::RT_NONE:
             ret= ((ServCmd_RTVoid*)cmd)->execute(words, app, sc);
-            fprintf(sc.sockFile, cmd->getStatusMessage().c_str());
-            fflush(sc.sockFile);
+            sc.writef(cmd->getStatusMessage().c_str());
             break;
         default:
             break;
@@ -611,6 +738,7 @@ class ccUseGraph: public ServCmd_RTVoid
 ServCli::ServCli(Graphserv &_app): app(_app)
 {
     addCommand(new ccCreateGraph());
+    addCommand(new ccUseGraph());
 }
 
 
@@ -626,10 +754,10 @@ int main()
     bindtextdomain("graphserv", "./messages");
     textdomain("graphserv");
 
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler= sigchld_handler;
-    sigaction(SIGCHLD, &sa, 0);
+//    struct sigaction sa;
+//    memset(&sa, 0, sizeof(sa));
+//    sa.sa_handler= sigchld_handler;
+//    sigaction(SIGCHLD, &sa, 0);
 
 //    CoreInstance test(0);
 //    if(!test.startCore())
