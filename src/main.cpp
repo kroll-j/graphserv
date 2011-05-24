@@ -305,7 +305,7 @@ class CoreInstance: public NonblockWriter
         // try writing out commands from queue to core process
         void flushCommandQ()
         {
-            while( (!expectingReply) && (!expectingDataset) && commandQ.front().flushable() )
+            while( commandQ.size() && (!expectingReply) && (!expectingDataset) && commandQ.front().flushable() )
             {
                 CommandQEntry &c= commandQ.front();
                 write(c.command);
@@ -524,6 +524,7 @@ class Graphserv
                 for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++ )
                 {
                     CoreInstance *ci= i->second;
+                    ci->flushCommandQ();
                     if(FD_ISSET(ci->getReadFd(), &readfds))
                     {
                         printf("core %s has something to say\n", ci->getName().c_str());
@@ -692,10 +693,10 @@ class Graphserv
                         if(Cli::splitString(line.c_str()).size()==0)
                         {
                             cqe->dataFinished= true;
-                            ci->flushCommandQ();
                         }
                         return;
                     }
+                    ci->flushCommandQ();
                 }
                 else
                 {
@@ -730,14 +731,14 @@ class Graphserv
                 {
                     if(sc.accessLevel>=cci->accessLevel)
                     {
-                        // write command to instance (todo: something like CoreInstance::execute() does queueing etc)
+                        // write command to instance
                         CoreInstance *ci= findInstance(sc.coreID);
                         if(ci)
                         {
 //                            ci->write(line);
                             ci->queueCommand(line, sc.clientID, hasDataSet);
                         }
-                        else sc.writef(_("%s no such command.\n"), FAIL_STR);
+                        else sc.writef(_("%s client has invalid core ID %u\n"), FAIL_STR, sc.clientID);
                     }
                     else
                     {
@@ -747,10 +748,10 @@ class Graphserv
                     }
                 }
                 else
-                    sc.writef(_("%s no such command.\n"), FAIL_STR);
+                    sc.writef(_("%s no such core command.\n"), FAIL_STR);
             }
             else
-                sc.writef(_("%s no such command.\n"), FAIL_STR);
+                sc.writef(_("%s no such server command.\n"), FAIL_STR);
 
 //            else if(sc connected)
 //            {
@@ -777,6 +778,7 @@ uint32_t Graphserv::sessionIDCounter= 0;
 
 void CoreInstance::lineFromCore(string &line, class Graphserv &app)
 {
+    printf("lineFromCore %s\n", line.c_str());
     SessionContext *sc= app.findClient(lastClientID);
     if(!sc) { fprintf(stderr, "CoreInstance '%s', ID %u: limeFromCore(): invalid lastClientID %u\n", getName().c_str(), getID(), lastClientID); return; }
     if(expectingReply)
@@ -806,7 +808,7 @@ CommandStatus ServCli::execute(string command, class SessionContext &sc)
     if(!cmd)
     {
         sc.writef(FAIL_STR);
-        sc.writef(_(" no such command.\n"));
+        sc.writef(_(" no such server command.\n"));
         return CMD_FAILURE;
     }
     return execute(cmd, words, sc);
