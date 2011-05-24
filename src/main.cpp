@@ -148,6 +148,7 @@ class NonblockWriter
 
         bool writeString(const string s)
         {
+            cout << "writing " << s << ::flush;
             ssize_t sz= ::write(fd, s.data(), s.size());
             if(sz!=s.size())
             {
@@ -166,6 +167,8 @@ class NonblockWriter
 class CoreInstance: public NonblockWriter
 {
     public:
+        string linebuf;     // data read from core gets buffered here.
+
         CoreInstance(uint32_t _id): instanceID(_id)
         {
         }
@@ -453,40 +456,47 @@ class Graphserv
                 for(int i= 0; i<clientsToRemove.size(); i++)
                     removeSession(clientsToRemove[i]);
 
+                vector<uint32_t> coresToRemove;
+
                 for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++ )
                 {
                     CoreInstance *ci= i->second;
                     if(FD_ISSET(ci->getReadFd(), &readfds))
                     {
+                        printf("core %s has something to say\n", ci->getName().c_str());
                         const size_t BUFSIZE= 1024;
                         char buf[BUFSIZE];
-                        ssize_t sz= read(ci->getReadFd, buf, sizeof(buf), 0);
+                        ssize_t sz= read(ci->getReadFd(), buf, sizeof(buf));
                         if(sz==0)
                         {
-                            printf("client %d has closed the connection\n", sc.clientID);
-                            removeSession(sc.clientID);
+                            printf("core %s has exited?\n", ci->getName().c_str());
+                            coresToRemove.push_back(ci->getID());
                         }
                         else if(sz<0)
                         {
-                            fprintf(stderr, "i/o error, client %d: %s\n", sc.clientID, strerror(errno));
-                            removeSession(sc.clientID);
+                            fprintf(stderr, "i/o error, core %s: %s\n", ci->getName().c_str(), strerror(errno));
+                            coresToRemove.push_back(ci->getID());
                         }
                         else
                         {
                             for(ssize_t i= 0; i<sz; i++)
                             {
                                 char c= buf[i];
-                                if(c=='\r') continue;   // someone is feeding us DOS newlines?
-                                sc.linebuf+= c;
+                                if(c=='\r') continue;
+                                ci->linebuf+= c;
                                 if(c=='\n')
                                 {
-                                    lineFromClient(string(sc.linebuf), sc);
-                                    sc.linebuf.clear();
+                                    printf("%s> %s", ci->getName().c_str(), ci->linebuf.c_str());
+                                    fflush(stdout);
+                                    ci->linebuf.clear();
                                 }
                             }
                         }
                     }
                 }
+                // remove outside of loop to avoid invalidating iterators
+                for(int i= 0; i<coresToRemove.size(); i++)
+                    removeCoreInstance(coresToRemove[i]);
             }
 
             return true;
@@ -497,6 +507,14 @@ class Graphserv
         {
             for(map<uint32_t,CoreInstance*>::iterator it= coreInstances.begin(); it!=coreInstances.end(); it++)
                 if(it->second->getName()==name) return it->second;
+            return 0;
+        }
+
+        // find an instance by ID (faster).
+        CoreInstance *findInstance(uint32_t ID)
+        {
+            map<uint32_t,CoreInstance*>::iterator it= coreInstances.find(ID);
+            if(it!=coreInstances.end()) return it->second;
             return 0;
         }
 
@@ -602,7 +620,13 @@ class Graphserv
                 {
                     if(sc.accessLevel>=cci->accessLevel)
                     {
-                        // write command to instance
+                        // write command to instance (todo: something like CoreInstance::execute() does queueing etc)
+                        CoreInstance *ci= findInstance(sc.coreID);
+                        if(ci)
+                        {
+                            ci->write(line);
+                        }
+                        else sc.writef(_("%s no such command.\n"), FAIL_STR);
                     }
                     else
                     {
