@@ -163,7 +163,6 @@ class NonblockWriter
         size_t getWritebufferSize()
         {
             size_t ret= 0;
-            return buffer.size();
             for(deque<string>::iterator it= buffer.begin(); it!=buffer.end(); it++)
                 ret+= it->length();
             return ret;
@@ -405,7 +404,7 @@ struct SessionContext: public NonblockWriter
     int sockfd;
     string linebuf;
     class Graphserv &app;
-    double punishmentTime;
+    double chokeTime;
 
     struct Stats
     {
@@ -432,7 +431,7 @@ struct SessionContext: public NonblockWriter
 
 
     SessionContext(class Graphserv &_app, uint32_t cID, int sock, ConnectionType connType= CONN_TCP):
-        clientID(cID), accessLevel(ACCESS_ADMIN/*XXX*/), connectionType(connType), coreID(0), sockfd(sock), app(_app), punishmentTime(0)
+        clientID(cID), accessLevel(ACCESS_ADMIN/*XXX*/), connectionType(connType), coreID(0), sockfd(sock), app(_app), chokeTime(0)
     {
         setWriteFd(sockfd);
     }
@@ -517,16 +516,16 @@ class Graphserv
                 {
                     SessionContext *sc= i->second;
                     double d= time-sc->stats.lastTime;
-                    if(d>10.0)
+                    if(d>1.0)
                     {
                         sc->stats.normalize(time);
-                        fprintf(stderr, "client %u: bytesSent %.2f, linesQueued %.2f, coreCommandsSent %.2f, servCommandsSent %.2f\n",
-                                sc->clientID, sc->stats.bytesSent, sc->stats.linesQueued, sc->stats.coreCommandsSent, sc->stats.servCommandsSent);
-                        if(sc->stats.bytesSent>1000) sc->punishmentTime= time+5.0;
+//                        fprintf(stderr, "client %u: bytesSent %.2f, linesQueued %.2f, coreCommandsSent %.2f, servCommandsSent %.2f\n",
+//                                sc->clientID, sc->stats.bytesSent, sc->stats.linesQueued, sc->stats.coreCommandsSent, sc->stats.servCommandsSent);
+//                        if(sc->stats.bytesSent>1000) sc->chokeTime= time+0.5;
                         sc->stats.reset();
                         sc->stats.lastTime= time;
                     }
-                    if(sc->punishmentTime<time) fd_add(readfds, sc->sockfd, maxfd);
+                    if(sc->chokeTime<time) fd_add(readfds, sc->sockfd, maxfd);
                     if(!sc->writeBufferEmpty())
                         fd_add(writefds, sc->sockfd, maxfd);
                 }
