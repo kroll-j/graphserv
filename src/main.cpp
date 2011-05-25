@@ -516,11 +516,11 @@ class Graphserv
                 {
                     SessionContext *sc= i->second;
                     double d= time-sc->stats.lastTime;
-                    if(d>1.0)
+                    if(d>10.0)
                     {
                         sc->stats.normalize(time);
-//                        fprintf(stderr, "client %u: bytesSent %.2f, linesQueued %.2f, coreCommandsSent %.2f, servCommandsSent %.2f\n",
-//                                sc->clientID, sc->stats.bytesSent, sc->stats.linesQueued, sc->stats.coreCommandsSent, sc->stats.servCommandsSent);
+                        fprintf(stderr, "client %u: bytesSent %.2f, linesQueued %.2f, coreCommandsSent %.2f, servCommandsSent %.2f\n",
+                                sc->clientID, sc->stats.bytesSent, sc->stats.linesQueued, sc->stats.coreCommandsSent, sc->stats.servCommandsSent);
 //                        if(sc->stats.bytesSent>1000) sc->chokeTime= time+0.5;
                         sc->stats.reset();
                         sc->stats.lastTime= time;
