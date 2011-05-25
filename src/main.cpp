@@ -6,6 +6,7 @@
 #include <vector>
 #include <queue>
 #include <map>
+#include <set>
 #include <stdint.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -116,8 +117,16 @@ class NonblockWriter
         {
             while(!buffer.empty())
             {
-                if(!writeString(buffer.front())) return false;
-                buffer.pop();
+//                if(!writeString(buffer.front())) return false;
+//                buffer.pop();
+                size_t sz= writeString(buffer.front());
+                if(sz==buffer.front().size())
+                    buffer.pop();
+                else
+                {
+                    buffer.front().erase(0, sz);
+                    return false;
+                }
             }
             return true;
         }
@@ -127,8 +136,10 @@ class NonblockWriter
 
         void write(const string s)
         {
+//            flush();
+//            if( (!buffer.empty()) || (!writeString(s)) ) buffer.push(s);
+            buffer.push(s);
             flush();
-            if( (!buffer.empty()) || (!writeString(s)) ) buffer.push(s);
         }
 
         void writef(const char *fmt, ...)
@@ -147,20 +158,32 @@ class NonblockWriter
         int fd;
         queue<string> buffer;
 
-        bool writeString(const string s)
+        size_t writeString(const string& s)
         {
-            cout << "writing " << s << ::flush;
+//            cout << "writing " << s << ::flush;
+//            ssize_t charsLeft= s.size();
+//            while(charsLeft)
+//            {
+//                ssize_t sz= ::write(fd, s.data(), s.size());
+//                if(sz<0)
+//                {
+//                    if( (errno!=EAGAIN)&&(errno!=EWOULDBLOCK) )
+//                        perror("write"),
+//                        writeFailed(errno);
+//                    return false;
+//                }
+//            }
+//            return true;
+
             ssize_t sz= ::write(fd, s.data(), s.size());
-            if((unsigned)sz!=s.size())
+            if(sz<0)
             {
-                perror("write");
-
                 if( (errno!=EAGAIN)&&(errno!=EWOULDBLOCK) )
+                    perror("write"),
                     writeFailed(errno);
-
-                return false;
+                return 0;
             }
-            return true;
+            return sz;
         }
 };
 
@@ -194,7 +217,7 @@ class CoreInstance: public NonblockWriter
         void writeFailed(int _errno)
         {
             perror("write failed");
-            exit(1); //xxxxx todo: do some sensible error handling (like marking the instance to be removed)
+//            exit(1); //xxxxx todo: do some sensible error handling (like marking the instance to be removed)
         }
 
         bool startCore(const char *command= "./graphcore/graphcore")
@@ -293,13 +316,27 @@ class CoreInstance: public NonblockWriter
         int getReadFd() { return pipeFromCore[0]; }
         int getWriteFd() { return pipeToCore[1]; }
 
-        // find command for this client in queue
-        CommandQEntry *findClientCommand(uint32_t clientID)
+        // find *last* command for this client in queue
+        CommandQEntry *findLastClientCommand(uint32_t clientID)
         {
-            for(commandQ_t::iterator it= commandQ.begin(); it!=commandQ.end(); it++)
+            for(commandQ_t::reverse_iterator it= commandQ.rbegin(); it!=commandQ.rend(); it++)
                 if(it->clientID==clientID)
                     return & (*it);
             return 0;
+        }
+
+        void removeClientCommands(uint32_t clientID)
+        {
+            // xxx
+            for(commandQ_t::iterator it= commandQ.begin(); it!=commandQ.end(); it++)
+            {
+                if(it->clientID==clientID)
+                {
+//                    printf("removing command: '%s", it->command.c_str());
+                    commandQ.erase(it);
+                    it= commandQ.begin();
+                }
+            }
         }
 
         // try writing out commands from queue to core process
@@ -351,6 +388,8 @@ class CoreInstance: public NonblockWriter
 
         bool expectingReply;    // currently expecting a status reply from core (ok/failure/error)
         bool expectingDataset;  //          ''         a data set from core
+
+        friend class ccInfo;
 };
 
 struct SessionContext: public NonblockWriter
@@ -361,9 +400,10 @@ struct SessionContext: public NonblockWriter
     uint32_t coreID;    // non-zero if connected to a core instance
     int sockfd;
     string linebuf;
+    class Graphserv &app;
 
-    SessionContext(uint32_t cID, int sock, ConnectionType connType= CONN_TCP):
-        clientID(cID), accessLevel(ACCESS_ADMIN/*XXX*/), connectionType(connType), coreID(0), sockfd(sock)
+    SessionContext(class Graphserv &_app, uint32_t cID, int sock, ConnectionType connType= CONN_TCP):
+        clientID(cID), accessLevel(ACCESS_ADMIN/*XXX*/), connectionType(connType), coreID(0), sockfd(sock), app(_app)
     {
         setWriteFd(sockfd);
     }
@@ -373,10 +413,7 @@ struct SessionContext: public NonblockWriter
         close(sockfd);
     }
 
-    void writeFailed(int _errno)
-    {
-        perror("write failed"); // xxxxxxxx todo: do some sensible error handling (like marking the session to be removed)
-    }
+    void writeFailed(int _errno);
 };
 
 
@@ -433,11 +470,17 @@ class Graphserv
             while(true)
             {
                 FD_ZERO(&readfds);
+                FD_ZERO(&writefds);
 
                 maxfd= 0;
 
                 FD_SET(listensock, &readfds);
                 maxfd= listensock;
+
+                // deferred removal of clients
+                for(set<uint32_t>::iterator i= clientsToRemove.begin(); i!=clientsToRemove.end(); i++)
+                    removeSession(*i);
+                clientsToRemove.clear();
 
                 for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
                 {
@@ -455,8 +498,23 @@ class Graphserv
                         fd_add(writefds, ci->getWriteFd(), maxfd);
                 }
 
-                int r= select(maxfd+1, &readfds, 0, 0, 0);
-                if(r<0) { perror("select()"); return false; }
+                struct timeval timeout;
+                timeout.tv_sec= 2;
+                timeout.tv_usec= 0;
+                int r= select(maxfd+1, &readfds, &writefds, 0, &timeout);
+                if(r<0)
+                {
+                    perror("select()");
+                    switch(errno)
+                    {
+                        case EBADF:
+                            // one of the file descriptors was unexpectedly closed. find out which.
+                            continue;
+
+                        default:
+                            return false;
+                    }
+                }
 
                 if(FD_ISSET(listensock, &readfds))
                 {
@@ -475,26 +533,24 @@ class Graphserv
                     }
                 }
 
-                vector<uint32_t> clientsToRemove;
-
                 for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
                 {
                     SessionContext &sc= *i->second;
                     int sockfd= sc.sockfd;
                     if(FD_ISSET(sockfd, &readfds))
                     {
-                        const size_t BUFSIZE= 1024;
+                        const size_t BUFSIZE= 4;
                         char buf[BUFSIZE];
                         ssize_t sz= recv(sockfd, buf, sizeof(buf), 0);
                         if(sz==0)
                         {
                             printf("client %d has closed the connection\n", sc.clientID);
-                            clientsToRemove.push_back(sc.clientID);
+                            clientsToRemove.insert(sc.clientID);
                         }
                         else if(sz<0)
                         {
                             fprintf(stderr, "i/o error, client %d: %s\n", sc.clientID, strerror(errno));
-                            clientsToRemove.push_back(sc.clientID);
+                            clientsToRemove.insert(sc.clientID);
                         }
                         else
                         {
@@ -505,6 +561,9 @@ class Graphserv
                                 sc.linebuf+= c;
                                 if(c=='\n')
                                 {
+                                    if(clientsToRemove.find(sc.clientID)!=clientsToRemove.end())
+                                        break;
+
                                     lineFromClient(string(sc.linebuf), sc);
                                     sc.linebuf.clear();
                                 }
@@ -515,10 +574,6 @@ class Graphserv
                         sc.flush();
                 }
 
-                // remove outside of loop to avoid invalidating iterators
-                for(size_t i= 0; i<clientsToRemove.size(); i++)
-                    removeSession(clientsToRemove[i]);
-
                 vector<CoreInstance*> coresToRemove;
 
                 for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++ )
@@ -527,13 +582,15 @@ class Graphserv
                     ci->flushCommandQ();
                     if(FD_ISSET(ci->getReadFd(), &readfds))
                     {
-                        printf("core %s has something to say\n", ci->getName().c_str());
                         const size_t BUFSIZE= 1024;
                         char buf[BUFSIZE];
                         ssize_t sz= read(ci->getReadFd(), buf, sizeof(buf));
                         if(sz==0)
                         {
                             printf("core %s has exited?\n", ci->getName().c_str());
+                            int status;
+                            waitpid(ci->getPid(), &status, 0);
+                            // xxxx
                             coresToRemove.push_back(ci);
                         }
                         else if(sz<0)
@@ -550,8 +607,6 @@ class Graphserv
                                 ci->linebuf+= c;
                                 if(c=='\n')
                                 {
-                                    printf("%s> %s", ci->getName().c_str(), ci->linebuf.c_str());
-                                    fflush(stdout);
                                     ci->lineFromCore(ci->linebuf, *this);
                                     ci->linebuf.clear();
                                 }
@@ -605,9 +660,18 @@ class Graphserv
         // find a session context (client).
         SessionContext *findClient(uint32_t ID)
         {
+            set<uint32_t>::iterator i= clientsToRemove.find(ID);
+            if(i!=clientsToRemove.end()) return 0;
             map<uint32_t,SessionContext*>::iterator it= sessionContexts.find(ID);
             if(it!=sessionContexts.end()) return it->second;
             return 0;
+        }
+
+        void deferredClientRemove(SessionContext *sc, int _errno)
+        {
+            if(clientsToRemove.find(sc->clientID)!=clientsToRemove.end())
+                return;
+            clientsToRemove.insert(sc->clientID);
         }
 
     private:
@@ -623,6 +687,8 @@ class Graphserv
 
         map<uint32_t,CoreInstance*> coreInstances;
         map<uint32_t,SessionContext*> sessionContexts;
+
+        set<uint32_t> clientsToRemove;
 
         ServCli cli;
 
@@ -655,7 +721,7 @@ class Graphserv
         SessionContext *createSession(int sock, ConnectionType connType= CONN_TCP)
         {
             uint32_t newID= ++sessionIDCounter;
-            SessionContext *newSession= new SessionContext(newID, sock, connType);
+            SessionContext *newSession= new SessionContext(*this, newID, sock, connType);
             sessionContexts.insert( pair<uint32_t,SessionContext*>(newID, newSession) );
             return newSession;
         }
@@ -665,6 +731,9 @@ class Graphserv
             map<uint32_t,SessionContext*>::iterator it= sessionContexts.find(sessionID);
             if(it!=sessionContexts.end())
             {
+//                // remove all commands queued for this client
+//                for(map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++)
+//                    i->second->removeClientCommands(sessionID);
                 delete(it->second);
                 sessionContexts.erase(it);
                 return true;
@@ -674,11 +743,6 @@ class Graphserv
 
         void lineFromClient(string line, SessionContext &sc)
         {
-//            printf("%d> %s", sc.clientID, sc.linebuf.c_str());
-//            string tmp= format("%d < %s", sc.clientID, sc.linebuf.c_str());
-//            write(sc.sockfd, tmp.c_str(), tmp.size());
-//            cli.execute(line, sc);
-
             // if(sc connected && running command for this client accepts more data)
             //      append data to command queue entry
             if(sc.coreID)
@@ -686,21 +750,21 @@ class Graphserv
                 CoreInstance *ci= findInstance(sc.coreID);
                 if(ci)
                 {
-                    CommandQEntry *cqe= ci->findClientCommand(sc.clientID);
+                    CommandQEntry *cqe= ci->findLastClientCommand(sc.clientID);
                     if(cqe && cqe->acceptsData && (!cqe->dataFinished))
                     {
                         cqe->dataSet.push_back(line);
                         if(Cli::splitString(line.c_str()).size()==0)
-                        {
                             cqe->dataFinished= true;
-                        }
                         return;
                     }
                     ci->flushCommandQ();
                 }
                 else
                 {
-                    fprintf(stderr, "BUG: client %d has invalid coreID %d\n", sc.clientID, sc.coreID);
+//                    fprintf(stderr, "BUG: client %d has invalid coreID %d\n", sc.clientID, sc.coreID);
+//                    deferredClientRemove(&sc, 0);
+                    // XXX handle error. something like "ERROR! core exited unexpectedly" (if that ever happens)
                     return;
                 }
             }
@@ -733,11 +797,7 @@ class Graphserv
                     {
                         // write command to instance
                         CoreInstance *ci= findInstance(sc.coreID);
-                        if(ci)
-                        {
-//                            ci->write(line);
-                            ci->queueCommand(line, sc.clientID, hasDataSet);
-                        }
+                        if(ci) ci->queueCommand(line, sc.clientID, hasDataSet);
                         else sc.writef(_("%s client has invalid core ID %u\n"), FAIL_STR, sc.clientID);
                     }
                     else
@@ -748,7 +808,7 @@ class Graphserv
                     }
                 }
                 else
-                    sc.writef(_("%s no such core command.\n"), FAIL_STR);
+                    sc.writef(_("%s no such core command '%s'.\n"), FAIL_STR, words[0].c_str());
             }
             else
                 sc.writef(_("%s no such server command.\n"), FAIL_STR);
@@ -769,6 +829,8 @@ class Graphserv
 //            else
 //                write error("no such command");
         }
+
+        friend class ccInfo;
 };
 
 uint32_t Graphserv::coreIDCounter= 0;
@@ -778,24 +840,34 @@ uint32_t Graphserv::sessionIDCounter= 0;
 
 void CoreInstance::lineFromCore(string &line, class Graphserv &app)
 {
-    printf("lineFromCore %s\n", line.c_str());
+//    printf("lineFromCore %s\n", line.c_str());
     SessionContext *sc= app.findClient(lastClientID);
-    if(!sc) { fprintf(stderr, "CoreInstance '%s', ID %u: limeFromCore(): invalid lastClientID %u\n", getName().c_str(), getID(), lastClientID); return; }
+//    if(!sc) fprintf(stderr, "CoreInstance '%s', ID %u: lineFromCore(): invalid lastClientID %u\n", getName().c_str(), getID(), lastClientID);
     if(expectingReply)
     {
         expectingReply= false;
         if(line.find(":")!=string::npos)
             expectingDataset= true;
-        sc->write(line);
+        if(sc) sc->write(line);
     }
     else if(expectingDataset)
     {
         if(Cli::splitString(line.c_str()).size()==0)
             expectingDataset= false;
-        sc->write(line);
+        if(sc) sc->write(line);
     }
     else
-        fprintf(stderr, "CoreInstance '%s', ID %u: limeFromCore(): not expecting anything from client %u\n", getName().c_str(), getID(), lastClientID); return;
+        fprintf(stderr, "CoreInstance '%s', ID %u: lineFromCore(): not expecting anything from this core\n", getName().c_str(), getID()); return;
+}
+
+
+
+// error handler called because of closed connection etc. tell app to disconnect this client.
+void SessionContext::writeFailed(int _errno)
+{
+//    printf("SessionContext::writeFailed()\n");
+//    abort();
+    app.deferredClientRemove(this, _errno);
 }
 
 
@@ -894,11 +966,47 @@ class ccUseGraph: public ServCmd_RTVoid
 
 };
 
+#ifdef DEBUG_COMMANDS
+
+class ccInfo: public ServCmd_RTOther
+{
+    public:
+        string getName() { return "i"; }
+        string getSynopsis() { return getName() + " graphname"; }
+        string getHelpText() { return _("print info (debugging)"); }
+        AccessLevel getAccessLevel() { return ACCESS_READ; }
+
+        CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
+        {
+            if(words.size()!=1)
+            {
+                syntaxError();
+                return CMD_FAILURE;
+            }
+
+            sc.writef("Cores: %d\n", app.coreInstances.size());
+
+            for(map<uint32_t,CoreInstance*>::iterator it= app.coreInstances.begin(); it!=app.coreInstances.end(); it++)
+            {
+                CoreInstance *ci= it->second;
+                sc.writef("Core %d:\n", ci->getID());
+                sc.writef("  queue size: %d\n", ci->commandQ.size());
+            }
+
+            return CMD_SUCCESS;
+        }
+
+};
+
+#endif //DEBUG_COMMANDS
 
 ServCli::ServCli(Graphserv &_app): app(_app)
 {
     addCommand(new ccCreateGraph());
     addCommand(new ccUseGraph());
+#ifdef DEBUG_COMMANDS
+    addCommand(new ccInfo());
+#endif
 }
 
 
@@ -913,6 +1021,8 @@ int main()
 {
     bindtextdomain("graphserv", "./messages");
     textdomain("graphserv");
+
+    signal(SIGPIPE, SIG_IGN);
 
 //    struct sigaction sa;
 //    memset(&sa, 0, sizeof(sa));
