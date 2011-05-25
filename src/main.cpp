@@ -23,12 +23,24 @@
 #include <sys/select.h>
 #include <netinet/in.h>
 #include <sys/wait.h>
+#include <sys/time.h>
 
 #include "clibase.h"
 
 
 #define DEFAULT_PORT    6666
 #define LISTEN_BACKLOG  100
+
+
+
+// time measurement
+double getTime()
+{
+    timeval tv;
+    if(gettimeofday(&tv, 0)<0) perror("gettimeofday");
+    return tv.tv_sec + tv.tv_usec*0.000001;
+}
+
 
 
 enum AccessLevel
@@ -117,11 +129,9 @@ class NonblockWriter
         {
             while(!buffer.empty())
             {
-//                if(!writeString(buffer.front())) return false;
-//                buffer.pop();
                 size_t sz= writeString(buffer.front());
                 if(sz==buffer.front().size())
-                    buffer.pop();
+                    buffer.pop_front();
                 else
                 {
                     buffer.front().erase(0, sz);
@@ -136,9 +146,7 @@ class NonblockWriter
 
         void write(const string s)
         {
-//            flush();
-//            if( (!buffer.empty()) || (!writeString(s)) ) buffer.push(s);
-            buffer.push(s);
+            buffer.push_back(s);
             flush();
         }
 
@@ -152,11 +160,20 @@ class NonblockWriter
             write(c);
         }
 
+        size_t getWritebufferSize()
+        {
+            size_t ret= 0;
+            return buffer.size();
+            for(deque<string>::iterator it= buffer.begin(); it!=buffer.end(); it++)
+                ret+= it->length();
+            return ret;
+        }
+
         virtual void writeFailed(int _errno)= 0;
 
     private:
         int fd;
-        queue<string> buffer;
+        deque<string> buffer;
 
         size_t writeString(const string& s)
         {
@@ -340,20 +357,7 @@ class CoreInstance: public NonblockWriter
         }
 
         // try writing out commands from queue to core process
-        void flushCommandQ()
-        {
-            while( commandQ.size() && (!expectingReply) && (!expectingDataset) && commandQ.front().flushable() )
-            {
-                CommandQEntry &c= commandQ.front();
-                write(c.command);
-                for(deque<string>::iterator it= c.dataSet.begin(); it!=c.dataSet.end(); it++)
-                    write(*it);
-                lastClientID= c.clientID;
-                expectingReply= true;
-                expectingDataset= false;
-                commandQ.pop_front();
-            }
-        }
+        void flushCommandQ(class Graphserv &app);
 
         void queueCommand(string &cmd, uint32_t clientID, bool hasDataSet)
         {
@@ -401,9 +405,34 @@ struct SessionContext: public NonblockWriter
     int sockfd;
     string linebuf;
     class Graphserv &app;
+    double punishmentTime;
+
+    struct Stats
+    {
+        double lastTime;
+        union { struct {
+        double linesSent, coreCommandsSent, servCommandsSent,
+               bytesSent, dataRecordsSent, linesQueued;
+        }; double values[6]; };
+        Stats()
+        { reset(); }
+        void reset(double t= getTime())
+        {
+            lastTime= t;
+            memset(values, 0, sizeof(values));
+        }
+        void normalize(double t= getTime())
+        {
+            double idt= 1.0/(t-lastTime);
+            for(int i= 0; i<sizeof(values)/sizeof(values[0]); i++)
+                values[i]*= idt;
+        }
+    };
+    Stats stats;
+
 
     SessionContext(class Graphserv &_app, uint32_t cID, int sock, ConnectionType connType= CONN_TCP):
-        clientID(cID), accessLevel(ACCESS_ADMIN/*XXX*/), connectionType(connType), coreID(0), sockfd(sock), app(_app)
+        clientID(cID), accessLevel(ACCESS_ADMIN/*XXX*/), connectionType(connType), coreID(0), sockfd(sock), app(_app), punishmentTime(0)
     {
         setWriteFd(sockfd);
     }
@@ -469,6 +498,8 @@ class Graphserv
             puts("main loop");
             while(true)
             {
+                double time= getTime();
+
                 FD_ZERO(&readfds);
                 FD_ZERO(&writefds);
 
@@ -485,7 +516,17 @@ class Graphserv
                 for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
                 {
                     SessionContext *sc= i->second;
-                    fd_add(readfds, sc->sockfd, maxfd);
+                    double d= time-sc->stats.lastTime;
+                    if(d>10.0)
+                    {
+                        sc->stats.normalize(time);
+                        fprintf(stderr, "client %u: bytesSent %.2f, linesQueued %.2f, coreCommandsSent %.2f, servCommandsSent %.2f\n",
+                                sc->clientID, sc->stats.bytesSent, sc->stats.linesQueued, sc->stats.coreCommandsSent, sc->stats.servCommandsSent);
+                        if(sc->stats.bytesSent>1000) sc->punishmentTime= time+5.0;
+                        sc->stats.reset();
+                        sc->stats.lastTime= time;
+                    }
+                    if(sc->punishmentTime<time) fd_add(readfds, sc->sockfd, maxfd);
                     if(!sc->writeBufferEmpty())
                         fd_add(writefds, sc->sockfd, maxfd);
                 }
@@ -494,6 +535,7 @@ class Graphserv
                 {
                     CoreInstance *ci= i->second;
                     fd_add(readfds, ci->getReadFd(), maxfd);
+                    ci->flushCommandQ(*this);
                     if(!ci->writeBufferEmpty())
                         fd_add(writefds, ci->getWriteFd(), maxfd);
                 }
@@ -508,13 +550,15 @@ class Graphserv
                     switch(errno)
                     {
                         case EBADF:
-                            // one of the file descriptors was unexpectedly closed. find out which.
+                            // xxx one of the file descriptors was unexpectedly closed. find out which.
                             continue;
 
                         default:
                             return false;
                     }
                 }
+
+                time= getTime();
 
                 if(FD_ISSET(listensock, &readfds))
                 {
@@ -539,7 +583,7 @@ class Graphserv
                     int sockfd= sc.sockfd;
                     if(FD_ISSET(sockfd, &readfds))
                     {
-                        const size_t BUFSIZE= 4;
+                        const size_t BUFSIZE= 128;
                         char buf[BUFSIZE];
                         ssize_t sz= recv(sockfd, buf, sizeof(buf), 0);
                         if(sz==0)
@@ -564,7 +608,7 @@ class Graphserv
                                     if(clientsToRemove.find(sc.clientID)!=clientsToRemove.end())
                                         break;
 
-                                    lineFromClient(string(sc.linebuf), sc);
+                                    lineFromClient(string(sc.linebuf), sc, time);
                                     sc.linebuf.clear();
                                 }
                             }
@@ -579,7 +623,6 @@ class Graphserv
                 for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++ )
                 {
                     CoreInstance *ci= i->second;
-                    ci->flushCommandQ();
                     if(FD_ISSET(ci->getReadFd(), &readfds))
                     {
                         const size_t BUFSIZE= 1024;
@@ -589,8 +632,7 @@ class Graphserv
                         {
                             printf("core %s has exited?\n", ci->getName().c_str());
                             int status;
-                            waitpid(ci->getPid(), &status, 0);
-                            // xxxx
+                            waitpid(ci->getPid(), &status, 0);  // un-zombify
                             coresToRemove.push_back(ci);
                         }
                         else if(sz<0)
@@ -741,8 +783,11 @@ class Graphserv
             return false;
         }
 
-        void lineFromClient(string line, SessionContext &sc)
+        void lineFromClient(string line, SessionContext &sc, double timestamp)
         {
+            sc.stats.linesSent++;
+            sc.stats.bytesSent+= line.length();
+
             // if(sc connected && running command for this client accepts more data)
             //      append data to command queue entry
             if(sc.coreID)
@@ -753,16 +798,19 @@ class Graphserv
                     CommandQEntry *cqe= ci->findLastClientCommand(sc.clientID);
                     if(cqe && cqe->acceptsData && (!cqe->dataFinished))
                     {
+                        sc.stats.dataRecordsSent++;
+                        sc.stats.linesQueued++;
+
                         cqe->dataSet.push_back(line);
                         if(Cli::splitString(line.c_str()).size()==0)
                             cqe->dataFinished= true;
                         return;
                     }
-                    ci->flushCommandQ();
+                    ci->flushCommandQ(*this);
                 }
                 else
                 {
-//                    fprintf(stderr, "BUG: client %d has invalid coreID %d\n", sc.clientID, sc.coreID);
+                   fprintf(stderr, "BUG? client %d has invalid coreID %d\n", sc.clientID, sc.coreID);
 //                    deferredClientRemove(&sc, 0);
                     // XXX handle error. something like "ERROR! core exited unexpectedly" (if that ever happens)
                     return;
@@ -784,12 +832,14 @@ class Graphserv
             ServCmd *cmd= (ServCmd*)cli.findCommand(words[0]);
             if(cmd)
             {
+                sc.stats.servCommandsSent++;
                 if(hasDataSet)  // currently, no server command takes a data set.
                     sc.writef(_("%s %s accepts no data set.\n"), FAIL_STR, words[0].c_str());
                 else cli.execute(cmd, words, sc);
             }
             else if(sc.coreID)
             {
+                sc.stats.coreCommandsSent++;
                 CoreCommandInfo *cci= findCoreCommand(words[0]);
                 if(cci)
                 {
@@ -797,6 +847,7 @@ class Graphserv
                     {
                         // write command to instance
                         CoreInstance *ci= findInstance(sc.coreID);
+                        sc.stats.linesQueued++;
                         if(ci) ci->queueCommand(line, sc.clientID, hasDataSet);
                         else sc.writef(_("%s client has invalid core ID %u\n"), FAIL_STR, sc.clientID);
                     }
@@ -857,9 +908,27 @@ void CoreInstance::lineFromCore(string &line, class Graphserv &app)
         if(sc) sc->write(line);
     }
     else
-        fprintf(stderr, "CoreInstance '%s', ID %u: lineFromCore(): not expecting anything from this core\n", getName().c_str(), getID()); return;
+    {
+        if(app.findClient(lastClientID))
+            fprintf(stderr, "CoreInstance '%s', ID %u: lineFromCore(): not expecting anything from this core\n", getName().c_str(), getID());
+    }
 }
 
+// try writing out commands from queue to core process
+void CoreInstance::flushCommandQ(class Graphserv &app)
+{
+    while( commandQ.size() && (!expectingReply) && (!expectingDataset) && commandQ.front().flushable() )
+    {
+        CommandQEntry &c= commandQ.front();
+        write(c.command);
+        for(deque<string>::iterator it= c.dataSet.begin(); it!=c.dataSet.end(); it++)
+            write(*it);
+        lastClientID= c.clientID;
+        expectingReply= true;
+        expectingDataset= false;
+        commandQ.pop_front();
+    }
+}
 
 
 // error handler called because of closed connection etc. tell app to disconnect this client.
@@ -906,6 +975,7 @@ CommandStatus ServCli::execute(ServCmd *cmd, vector<string> &words, SessionConte
             sc.writef(cmd->getStatusMessage().c_str());
             break;
         default:
+            ret= CMD_ERROR;
             break;
     }
     return ret;
@@ -966,8 +1036,6 @@ class ccUseGraph: public ServCmd_RTVoid
 
 };
 
-#ifdef DEBUG_COMMANDS
-
 class ccInfo: public ServCmd_RTOther
 {
     public:
@@ -990,7 +1058,8 @@ class ccInfo: public ServCmd_RTOther
             {
                 CoreInstance *ci= it->second;
                 sc.writef("Core %d:\n", ci->getID());
-                sc.writef("  queue size: %d\n", ci->commandQ.size());
+                sc.writef("  queue size: %u\n", ci->commandQ.size());
+                sc.writef("  bytes in write buffer: %u\n", ci->getWritebufferSize());
             }
 
             return CMD_SUCCESS;
@@ -998,15 +1067,12 @@ class ccInfo: public ServCmd_RTOther
 
 };
 
-#endif //DEBUG_COMMANDS
 
 ServCli::ServCli(Graphserv &_app): app(_app)
 {
     addCommand(new ccCreateGraph());
     addCommand(new ccUseGraph());
-#ifdef DEBUG_COMMANDS
     addCommand(new ccInfo());
-#endif
 }
 
 
