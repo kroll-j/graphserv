@@ -7,12 +7,9 @@
 #include <queue>
 #include <map>
 #include <set>
-#include <stdint.h>
-#include <unistd.h>
 #include <fcntl.h>
 #include <string>
 #include <cstring>
-#include <cstdlib>
 #include <cstdio>
 #include <stdarg.h>
 #include <algorithm>
@@ -28,8 +25,9 @@
 #include "clibase.h"
 
 
-#define DEFAULT_PORT    6666
-#define LISTEN_BACKLOG  100
+#define DEFAULT_TCP_PORT    6666
+#define DEFAULT_HTTP_PORT   8090
+#define LISTEN_BACKLOG      100
 
 
 
@@ -100,16 +98,16 @@ class ServCmd_RTOther: public ServCmd
 };
 
 
-static bool setNonblocking(int sock)
+static bool setNonblocking(int fd)
 {
-	int opts= fcntl(sock, F_GETFL);
+	int opts= fcntl(fd, F_GETFL);
 	if(opts<0)
     {
 		perror("fcntl(F_GETFL)");
 		return false;
 	}
 	opts|= O_NONBLOCK;
-	if(fcntl(sock,F_SETFL,opts)<0)
+	if(fcntl(fd, F_SETFL, opts)<0)
 	{
 		perror("fcntl(F_SETFL)");
 		return false;
@@ -117,6 +115,22 @@ static bool setNonblocking(int sock)
 	return true;
 }
 
+static bool closeOnExec(int fd)
+{
+    int opts= fcntl(fd, F_GETFD);
+    if(opts<0)
+    {
+        perror("fcntl(F_GETFD)");
+        return false;
+    }
+    opts|= FD_CLOEXEC;
+    if(fcntl(fd, F_SETFD, opts)<0)
+    {
+        perror("fcntl(F_SETFD)");
+        return false;
+    }
+    return true;
+}
 
 class NonblockWriter
 {
@@ -146,6 +160,7 @@ class NonblockWriter
 
         void write(const string s)
         {
+//            cout << "writing " << s << endl << std::flush;
             buffer.push_back(s);
             flush();
         }
@@ -297,6 +312,8 @@ class CoreInstance: public NonblockWriter
                         return false;
                     }
                     setWriteFd(pipeToCore[1]);
+//                    closeOnExec(pipeToCore[1]);
+//                    closeOnExec(pipeFromCore[0]);
                     return true;
                 }
                 else    // fgets() failed
@@ -373,6 +390,12 @@ class CoreInstance: public NonblockWriter
             return lastClientID;
         }
 
+        // true if this core is running a command for this client or has a command for this client in its queue.
+        bool hasDataForClient(uint32_t clientID)
+        {
+            return (lastClientID==clientID && (expectingReply||expectingDataset)) || findLastClientCommand(clientID);
+        }
+
         void lineFromCore(string &line, class Graphserv &app);
 
     private:
@@ -405,6 +428,31 @@ struct SessionContext: public NonblockWriter
     string linebuf;
     class Graphserv &app;
     double chokeTime;
+
+    struct HttpClientState
+    {
+        vector<string> request;
+        string requestString;
+    } http;
+
+    void httpWriteResponseHeader(int code, const string &title, const string &contentType, const string &optionalFields= "")
+    {
+        writef("HTTP/1.0 %d %s\n", code, title.c_str());
+        writef("Content-Type: %s\n", contentType.c_str());
+        if(optionalFields.length())
+        {
+            write(optionalFields.c_str());
+            if(optionalFields[optionalFields.size()-1]!='\n') write("\n");
+        }
+        writef("\n");
+    }
+
+    void httpWriteErrorResponse(int code, const string &title, const string &description, const string &optionalFields= "")
+    {
+        httpWriteResponseHeader(code, title, "text/html", optionalFields);
+        writef("<http><head><title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>\n", title.c_str(), title.c_str(), description.c_str());
+    }
+
 
     struct Stats
     {
@@ -455,41 +503,8 @@ class Graphserv
 
         bool run()
         {
-            int listensock= socket(AF_INET, SOCK_STREAM, 0);
-            if(listensock==-1) { perror("socket()"); return false; }
-
-            // Allow socket descriptor to be reuseable
-            int on= 1;
-            int rc= setsockopt(listensock, SOL_SOCKET,  SO_REUSEADDR, (char *)&on, sizeof(on));
-            if (rc < 0)
-            {
-                perror("setsockopt() failed");
-                close(listensock);
-                return false;
-            }
-
-            if(!setNonblocking(listensock)) { close(listensock); return false; }
-
-            struct sockaddr_in sa;
-            memset(&sa, 0, sizeof(sa));
-            sa.sin_family= AF_INET;
-            sa.sin_addr.s_addr= htonl(INADDR_ANY);
-            sa.sin_port= htons(DEFAULT_PORT);
-            if(bind(listensock, (sockaddr*)&sa, sizeof(sa))<0)
-            {
-                perror("bind()");
-                close(listensock);
-                return false;
-            }
-
-            if(listen(listensock, LISTEN_BACKLOG)<0)
-            {
-                perror("listen()");
-                close(listensock);
-                return false;
-            }
-
-
+            int listenSocket= openListenSocket(DEFAULT_TCP_PORT);
+            int httpSocket= openListenSocket(DEFAULT_HTTP_PORT);
             fd_set readfds, writefds;
 
             int maxfd;
@@ -504,8 +519,8 @@ class Graphserv
 
                 maxfd= 0;
 
-                FD_SET(listensock, &readfds);
-                maxfd= listensock;
+                fd_add(readfds, listenSocket, maxfd);
+                fd_add(readfds, httpSocket, maxfd);
 
                 // deferred removal of clients
                 for(set<uint32_t>::iterator i= clientsToRemove.begin(); i!=clientsToRemove.end(); i++)
@@ -515,6 +530,21 @@ class Graphserv
                 for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
                 {
                     SessionContext *sc= i->second;
+
+                    if(sc->connectionType==CONN_HTTP && sc->coreID)
+                    {
+                        CoreInstance *ci= findInstance(sc->coreID);
+                        if(!ci)
+                        {
+                            sc->httpWriteErrorResponse(500, "Internal Server Error", _("Your graphcore process has unexpectedly died."));
+                            continue;
+                        }
+                        if(!ci->getWritebufferSize() && !ci->hasDataForClient(sc->clientID))
+                        {
+                            deferredClientRemove(sc, 0);
+                        }
+                    }
+
                     double d= time-sc->stats.lastTime;
                     if(d>10.0)
                     {
@@ -559,22 +589,13 @@ class Graphserv
 
                 time= getTime();
 
-                if(FD_ISSET(listensock, &readfds))
-                {
-                    int newConnection= accept(listensock, 0, 0);
-                    if(newConnection<0)
-                    {
-                        perror("accept()");
-                        if(errno!=EWOULDBLOCK)
-                            return false;
-                    }
-                    else
-                    {
-                        // add new connection
-                        printf("new connection, socket=%d\n", newConnection);
-                        createSession(newConnection, CONN_TCP);
-                    }
-                }
+                if(FD_ISSET(listenSocket, &readfds))
+                    if(!acceptConnection(listenSocket, CONN_TCP))
+                        fprintf(stderr, "couldn't create connection.\n");
+
+                if(FD_ISSET(httpSocket, &readfds))
+                    if(!acceptConnection(httpSocket, CONN_HTTP))
+                        fprintf(stderr, "couldn't create connection.\n");
 
                 for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
                 {
@@ -607,7 +628,10 @@ class Graphserv
                                     if(clientsToRemove.find(sc.clientID)!=clientsToRemove.end())
                                         break;
 
-                                    lineFromClient(string(sc.linebuf), sc, time);
+                                    if(sc.connectionType==CONN_HTTP)
+                                        lineFromHTTPClient(sc.linebuf, sc, time);
+                                    else
+                                        lineFromClient(string(sc.linebuf), sc, time);
                                     sc.linebuf.clear();
                                 }
                             }
@@ -733,6 +757,46 @@ class Graphserv
 
         ServCli cli;
 
+        // create a reusable socket listening on the given port.
+        int openListenSocket(int port)
+        {
+            int listenSocket= socket(AF_INET, SOCK_STREAM, 0);
+            if(listenSocket==-1) { perror("socket()"); return false; }
+
+            // Allow socket descriptor to be reuseable
+            int on= 1;
+            int rc= setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof(on));
+            if (rc < 0)
+            {
+                perror("setsockopt() failed");
+                close(listenSocket);
+                return -1;
+            }
+
+//            if(!setNonblocking(listenSocket)) { close(listenSocket); return -1; }
+
+            struct sockaddr_in sa;
+            memset(&sa, 0, sizeof(sa));
+            sa.sin_family= AF_INET;
+            sa.sin_addr.s_addr= htonl(INADDR_ANY);
+            sa.sin_port= htons(port);
+            if(bind(listenSocket, (sockaddr*)&sa, sizeof(sa))<0)
+            {
+                perror("bind()");
+                close(listenSocket);
+                return -1;
+            }
+
+            if(listen(listenSocket, LISTEN_BACKLOG)<0)
+            {
+                perror("listen()");
+                close(listenSocket);
+                return -1;
+            }
+
+            return listenSocket;
+        }
+
         void fd_add(fd_set &set, int fd, int &maxfd)
         {
             FD_SET(fd, &set);
@@ -759,9 +823,28 @@ class Graphserv
 #undef CORECOMMAND
         }
 
+        SessionContext *acceptConnection(int socket, ConnectionType type)
+        {
+            int newConnection= accept(socket, 0, 0);
+            if(newConnection<0)
+            {
+                perror("accept()");
+                return 0;
+//                if(errno!=EWOULDBLOCK && errno!=EAGAIN)
+//                    return false;
+            }
+            else
+            {
+                // add new connection
+                printf("new connection, type %s, socket=%d\n", (type==CONN_TCP? "TCP": "HTTP"), newConnection);
+                return createSession(newConnection, type);
+            }
+        }
+
         SessionContext *createSession(int sock, ConnectionType connType= CONN_TCP)
         {
             uint32_t newID= ++sessionIDCounter;
+            if(!closeOnExec(sock)) return false;
             SessionContext *newSession= new SessionContext(*this, newID, sock, connType);
             sessionContexts.insert( pair<uint32_t,SessionContext*>(newID, newSession) );
             return newSession;
@@ -782,8 +865,15 @@ class Graphserv
             return false;
         }
 
+        // handle a line of text arriving from a client.
         void lineFromClient(string line, SessionContext &sc, double timestamp)
         {
+//            if(sc.connectionType==CONN_HTTP)
+//            {
+//                lineFromHTTPClient(line, sc, timestamp);
+//                return;
+//            }
+
             sc.stats.linesSent++;
             sc.stats.bytesSent+= line.length();
 
@@ -880,6 +970,111 @@ class Graphserv
 //                write error("no such command");
         }
 
+
+        void lineFromHTTPClient(string line, SessionContext &sc, double timestamp)
+        {
+//            printf(line.c_str());
+
+            sc.http.request.push_back(line);
+            if(line=="\n")  // end of request. CR is removed by buffering code
+            {
+                sc.http.requestString= sc.http.request[0];
+                sc.http.request.clear();    // discard the rest of the header, as we don't currently use it.
+                vector<string> words= Cli::splitString(sc.http.requestString.c_str());
+                if(words.size()!=3)     // this does not look like an HTTP request. disconnect the client.
+                {
+                    fprintf(stderr, _("bad HTTP request string, disconnecting.\n"));
+                    deferredClientRemove(&sc, 0);
+                    return;
+                }
+                transform(words[2].begin(), words[2].end(),words[2].begin(), ::toupper);
+                if( (words[2]!="HTTP/1.0") && (words[2]!="HTTP/1.1") )  // accept HTTP/1.1 too, if only for debugging.
+                {
+                    fprintf(stderr, _("unknown HTTP version, disconnecting.\n"));
+                    deferredClientRemove(&sc, 0);
+                    return;
+                }
+
+                const char *uri= words[1].c_str();
+                int urilen= words[1].size();
+                string transformedURI;
+                transformedURI.reserve(urilen);
+                for(int i= 0; i<urilen; i++)
+                {
+                    switch(uri[i])
+                    {
+                        case '+':
+                            transformedURI+= ' ';
+                            break;
+                        case '%':
+                            unsigned hexChar;
+                            if( urilen-i<3 || sscanf(uri+i+1, "%02X", &hexChar)!=1 || !isprint(hexChar) )
+                            {
+                                fprintf(stderr, _("i=%d len=%d %s %02X bad hex in request URI, disconnecting\n"), i, urilen, uri+i+1, hexChar);
+                                deferredClientRemove(&sc, 0);
+                                return;
+                            }
+                            transformedURI+= (char)hexChar;
+                            i+= 2;
+                            break;
+                        case '/':
+                            if(i==0) break;
+                            // else fall through
+                        default:
+                            transformedURI+= uri[i];
+                            break;
+                    }
+                }
+
+                vector<string> uriwords= Cli::splitString(transformedURI.c_str(), "/");
+
+                if(uriwords.size()!=2)
+                {
+                    sc.httpWriteErrorResponse(400, "Bad Request", _("Expecting a request string like: 'GET /corename/command+to+run HTTP/1.0' (see docs)."),
+                                              string("X-GraphProcessor: " FAIL_STR " ") + _("Bad Request String."));
+                    deferredClientRemove(&sc, 0);
+                    return;
+                }
+
+                // immediately connect the client to the core named in the request string.
+                CoreInstance *ci= findNamedInstance(uriwords[0]);
+                if(!ci)
+                {
+                    sc.httpWriteErrorResponse(400, "Bad Request", _("No such instance."),
+                                              string("X-GraphProcessor: " FAIL_STR " ") + _("No such instance."));
+                    deferredClientRemove(&sc, 0);
+                    return;
+                }
+
+                sc.coreID= ci->getID();
+
+                lineFromClient(uriwords[1] + '\n', sc, timestamp);
+
+//                printf("core ID: %d\n", sc.coreID);
+
+
+//                sc.writef("HTTP/1.0 200 OK\r\n");
+//                sc.writef("\r\n");
+//                sc.writef("uri: %s transformedURI: %s\n", uri, transformedURI.c_str());
+//                sc.flush();
+//                deferredClientRemove(&sc, 0);
+                return;
+
+                vector<string> commands= Cli::splitString(transformedURI.c_str(), ";");
+                sc.writef("HTTP/1.0 200 OK\r\n");
+                sc.writef("\r\n");
+                sc.writef("uri: %s transformedURI: %s\n", uri, transformedURI.c_str());
+                sc.writef("%d\n", commands.size());
+                for(int i= 0; i<commands.size(); i++)
+                {
+                    sc.writef("%s\n", commands[i].c_str());
+                    lineFromClient(commands[i] + "\n", sc, timestamp);
+                }
+                sc.flush();
+                deferredClientRemove(&sc, 0);
+            }
+        }
+
         friend class ccInfo;
 };
 
@@ -890,7 +1085,7 @@ uint32_t Graphserv::sessionIDCounter= 0;
 
 void CoreInstance::lineFromCore(string &line, class Graphserv &app)
 {
-//    printf("lineFromCore %s\n", line.c_str());
+//    printf("lineFromCore %s", line.c_str());
     SessionContext *sc= app.findClient(lastClientID);
 //    if(!sc) fprintf(stderr, "CoreInstance '%s', ID %u: lineFromCore(): invalid lastClientID %u\n", getName().c_str(), getID(), lastClientID);
     if(expectingReply)
@@ -898,7 +1093,29 @@ void CoreInstance::lineFromCore(string &line, class Graphserv &app)
         expectingReply= false;
         if(line.find(":")!=string::npos)
             expectingDataset= true;
-        if(sc) sc->write(line);
+        if(sc)
+        {
+            if(sc->connectionType==CONN_HTTP)
+            {
+                vector<string> replyWords= Cli::splitString(line.c_str());
+                if(replyWords.empty())
+                {
+                    sc->httpWriteErrorResponse(500, "Internal Server Error", "Empty reply from core. Please report.");
+                    app.deferredClientRemove(sc, 0);
+                    expectingDataset= false;
+                }
+                else
+                {
+                    string status= "X-GraphProcessor: " + line;
+                    if(replyWords[0]==SUCCESS_STR)
+                        sc->httpWriteResponseHeader(200, "OK", "text/plain", status);
+                    else if(replyWords[0]==FAIL_STR)
+                        sc->httpWriteErrorResponse(400, "Bad Request", status);
+
+                }
+            }
+            sc->write(line);
+        }
     }
     else if(expectingDataset)
     {

@@ -39,7 +39,7 @@
 			<Add directory="../graphcore/src" />
 		</Compiler>
 		<ExtraCommands>
-			<Add before="cp /home/johannes/code/graphcore/src/* /home/johannes/code/graphserv/graphcore/src/; true" />
+			<Add before="# cp /home/johannes/code/graphcore/src/* /home/johannes/code/graphserv/graphcore/src/; true" />
 		</ExtraCommands>
 		<Unit filename="../src/main.cpp" />
 		<Extensions>
