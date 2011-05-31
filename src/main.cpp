@@ -490,6 +490,17 @@ struct SessionContext: public NonblockWriter
     }
 
     void writeFailed(int _errno);
+
+//    virtual void writeStatusline(CMD_ERROR
+};
+
+
+struct HTTPSessionContext: public SessionContext
+{
+    HTTPSessionContext(class Graphserv &_app, uint32_t cID, int sock):
+        SessionContext(app, cID, sock, CONN_HTTP)
+    {
+    }
 };
 
 
@@ -1114,7 +1125,8 @@ void CoreInstance::lineFromCore(string &line, class Graphserv &app)
 
                 }
             }
-            sc->write(line);
+            else
+                sc->write(line);
         }
     }
     else if(expectingDataset)
