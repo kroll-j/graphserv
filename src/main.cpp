@@ -31,6 +31,24 @@
 
 
 
+// the command status codes, including those used in the core.
+enum CommandStatus
+{
+    CORECMDSTATUSCODES,
+    // server only status codes:
+    CMD_ACCESSDENIED,       // insufficient access level for command
+    CMD_NOT_FOUND,          // "command not found" results in a different HTTP status code, therefore it needs its own code.
+};
+
+static const string& getStatusString(CommandStatus status)
+{
+    // NOTE: these entries must match the status codes above.
+    static const string statusMsgs[]=
+    { CORECMDSTATUSSTRINGS, DENIED_STR, FAIL_STR };
+    return statusMsgs[status];
+}
+
+
 // time measurement
 double getTime()
 {
@@ -435,25 +453,6 @@ struct SessionContext: public NonblockWriter
         string requestString;
     } http;
 
-    void httpWriteResponseHeader(int code, const string &title, const string &contentType, const string &optionalFields= "")
-    {
-        writef("HTTP/1.0 %d %s\n", code, title.c_str());
-        writef("Content-Type: %s\n", contentType.c_str());
-        if(optionalFields.length())
-        {
-            write(optionalFields.c_str());
-            if(optionalFields[optionalFields.size()-1]!='\n') write("\n");
-        }
-        writef("\n");
-    }
-
-    void httpWriteErrorResponse(int code, const string &title, const string &description, const string &optionalFields= "")
-    {
-        httpWriteResponseHeader(code, title, "text/html", optionalFields);
-        writef("<http><head><title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>\n", title.c_str(), title.c_str(), description.c_str());
-    }
-
-
     struct Stats
     {
         double lastTime;
@@ -491,7 +490,19 @@ struct SessionContext: public NonblockWriter
 
     void writeFailed(int _errno);
 
-//    virtual void writeStatusline(CMD_ERROR
+    string makeStatusLine(CommandStatus status, const string& message)
+    {
+        string ret= getStatusString(status) + "  " + message;
+        while(ret[ret.size()-1]=='\n') ret.resize(ret.size()-1);   // make sure we don't break the protocol by adding extraneous newlines
+        return ret;
+    }
+
+    // write out the status line. overridden by superclasses (such as the HTTP session context)
+    virtual void writeStatusline(CommandStatus status, const string& message)
+    {
+        // the default for TCP connections: just write out the line.
+        write(makeStatusLine(status, message + '\n'));
+    }
 };
 
 
@@ -500,6 +511,29 @@ struct HTTPSessionContext: public SessionContext
     HTTPSessionContext(class Graphserv &_app, uint32_t cID, int sock):
         SessionContext(app, cID, sock, CONN_HTTP)
     {
+    }
+
+    void httpWriteResponseHeader(int code, const string &title, const string &contentType, const string &optionalFields= "")
+    {
+        writef("HTTP/1.0 %d %s\n", code, title.c_str());
+        writef("Content-Type: %s\n", contentType.c_str());
+        if(optionalFields.length())
+        {
+            write(optionalFields.c_str());
+            if(optionalFields[optionalFields.size()-1]!='\n') write("\n");
+        }
+        writef("\n");
+    }
+
+    void httpWriteErrorResponse(int code, const string &title, const string &description, const string &optionalFields= "")
+    {
+        httpWriteResponseHeader(code, title, "text/html", optionalFields);
+        writef("<http><head><title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>\n", title.c_str(), title.c_str(), description.c_str());
+    }
+
+    void writeStatusline(CommandStatus status, const string& message)
+    {
+
     }
 };
 
@@ -547,7 +581,8 @@ class Graphserv
                         CoreInstance *ci= findInstance(sc->coreID);
                         if(!ci)
                         {
-                            sc->httpWriteErrorResponse(500, "Internal Server Error", _("Your graphcore process has unexpectedly died."));
+                            // XXX
+//                            sc->httpWriteErrorResponse(500, "Internal Server Error", _("Your graphcore process has unexpectedly died."));
                             continue;
                         }
                         if(!ci->getWritebufferSize() && !ci->hasDataForClient(sc->clientID))
@@ -1041,8 +1076,9 @@ class Graphserv
 
                 if(uriwords.size()!=2)
                 {
-                    sc.httpWriteErrorResponse(400, "Bad Request", _("Expecting a request string like: 'GET /corename/command+to+run HTTP/1.0' (see docs)."),
-                                              string("X-GraphProcessor: " FAIL_STR " ") + _("Bad Request String."));
+                    // XXX
+//                    sc.httpWriteErrorResponse(400, "Bad Request", _("Expecting a request string like: 'GET /corename/command+to+run HTTP/1.0' (see docs)."),
+//                                              string("X-GraphProcessor: " FAIL_STR " ") + _("Bad Request String."));
                     deferredClientRemove(&sc, 0);
                     return;
                 }
@@ -1051,8 +1087,9 @@ class Graphserv
                 CoreInstance *ci= findNamedInstance(uriwords[0]);
                 if(!ci)
                 {
-                    sc.httpWriteErrorResponse(400, "Bad Request", _("No such instance."),
-                                              string("X-GraphProcessor: " FAIL_STR " ") + _("No such instance."));
+                    // XXX
+//                    sc.httpWriteErrorResponse(400, "Bad Request", _("No such instance."),
+//                                              string("X-GraphProcessor: " FAIL_STR " ") + _("No such instance."));
                     deferredClientRemove(&sc, 0);
                     return;
                 }
@@ -1111,17 +1148,19 @@ void CoreInstance::lineFromCore(string &line, class Graphserv &app)
                 vector<string> replyWords= Cli::splitString(line.c_str());
                 if(replyWords.empty())
                 {
-                    sc->httpWriteErrorResponse(500, "Internal Server Error", "Empty reply from core. Please report.");
+                    // XXX
+//                    sc->httpWriteErrorResponse(500, "Internal Server Error", "Empty reply from core. Please report.");
                     app.deferredClientRemove(sc, 0);
                     expectingDataset= false;
                 }
                 else
                 {
                     string status= "X-GraphProcessor: " + line;
-                    if(replyWords[0]==SUCCESS_STR)
-                        sc->httpWriteResponseHeader(200, "OK", "text/plain", status);
-                    else if(replyWords[0]==FAIL_STR)
-                        sc->httpWriteErrorResponse(400, "Bad Request", status);
+                    // XXXX
+//                    if(replyWords[0]==SUCCESS_STR)
+//                        sc->httpWriteResponseHeader(200, "OK", "text/plain", status);
+//                    else if(replyWords[0]==FAIL_STR)
+//                        sc->httpWriteErrorResponse(400, "Bad Request", status);
 
                 }
             }
