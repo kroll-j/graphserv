@@ -126,7 +126,7 @@ class ServCmd_RTOther: public ServCmd
 };
 
 
-static bool setNonblocking(int fd)
+static bool setNonblocking(int fd, bool on= true)
 {
 	int opts= fcntl(fd, F_GETFL);
 	if(opts<0)
@@ -134,7 +134,8 @@ static bool setNonblocking(int fd)
 		perror("fcntl(F_GETFL)");
 		return false;
 	}
-	opts|= O_NONBLOCK;
+	if(on) opts|= O_NONBLOCK;
+	else opts&= (~O_NONBLOCK);
 	if(fcntl(fd, F_SETFL, opts)<0)
 	{
 		perror("fcntl(F_SETFL)");
@@ -495,6 +496,7 @@ struct SessionContext: public NonblockWriter
 
     ~SessionContext()
     {
+        setNonblocking(sockfd, false);  // force output to be drained on closing.
         close(sockfd);
     }
 
@@ -779,8 +781,12 @@ class Graphserv
                 for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
                 {
                     SessionContext *sc= i->second;
-                    if(sc->connectionType==CONN_HTTP && ((HTTPSessionContext*)sc)->conversationFinished)
-                        // HTTP clients are disconnected once we don't have any more output for them.
+                    CoreInstance *ci;
+                    // HTTP clients are disconnected once we don't have any more output for them.
+                    if( sc->connectionType==CONN_HTTP &&
+                        ((HTTPSessionContext*)sc)->conversationFinished &&
+                        sc->writeBufferEmpty() &&
+                        ((ci= findInstance(sc->coreID))==NULL || ci->hasDataForClient(sc->clientID)==false) )
                         deferredClientDisconnect(sc);
                 }
             }
