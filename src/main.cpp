@@ -40,12 +40,22 @@ enum CommandStatus
     CMD_NOT_FOUND,          // "command not found" results in a different HTTP status code, therefore it needs its own code.
 };
 
+// NOTE: these entries must match the status codes above.
+static const string statusMsgs[]=
+{ CORECMDSTATUSSTRINGS, DENIED_STR, FAIL_STR };
+
 static const string& getStatusString(CommandStatus status)
 {
-    // NOTE: these entries must match the status codes above.
-    static const string statusMsgs[]=
-    { CORECMDSTATUSSTRINGS, DENIED_STR, FAIL_STR };
     return statusMsgs[status];
+}
+
+static CommandStatus getStatusCode(const string& msg)
+{
+    for(unsigned i= 0; i<sizeof(statusMsgs)/sizeof(statusMsgs[0]); i++)
+        if(statusMsgs[i]==msg)
+            return (CommandStatus)i;
+    fprintf(stderr, "getStatusCode called with bad string %s. Please report this bug.\n", msg.c_str());
+    return CMD_FAILURE;
 }
 
 
@@ -378,7 +388,7 @@ class CoreInstance: public NonblockWriter
 
         void removeClientCommands(uint32_t clientID)
         {
-            // xxx
+            // xxx as it is, this is inefficient, and currently not used. remove?
             for(commandQ_t::iterator it= commandQ.begin(); it!=commandQ.end(); it++)
             {
                 if(it->clientID==clientID)
@@ -470,7 +480,7 @@ struct SessionContext: public NonblockWriter
         void normalize(double t= getTime())
         {
             double idt= 1.0/(t-lastTime);
-            for(int i= 0; i<sizeof(values)/sizeof(values[0]); i++)
+            for(unsigned i= 0; i<sizeof(values)/sizeof(values[0]); i++)
                 values[i]*= idt;
         }
     };
@@ -478,7 +488,7 @@ struct SessionContext: public NonblockWriter
 
 
     SessionContext(class Graphserv &_app, uint32_t cID, int sock, ConnectionType connType= CONN_TCP):
-        clientID(cID), accessLevel(ACCESS_ADMIN/*XXX*/), connectionType(connType), coreID(0), sockfd(sock), app(_app), chokeTime(0)
+        clientID(cID), accessLevel(ACCESS_ADMIN/*XXX change after pw auth*/), connectionType(connType), coreID(0), sockfd(sock), app(_app), chokeTime(0)
     {
         setWriteFd(sockfd);
     }
@@ -490,26 +500,52 @@ struct SessionContext: public NonblockWriter
 
     void writeFailed(int _errno);
 
-    string makeStatusLine(CommandStatus status, const string& message)
+// xxx remove?
+//    string makeStatusLine(CommandStatus status, const string& message)
+//    {
+//        string ret= getStatusString(status) + "  " + message;
+//        while(ret[ret.size()-1]=='\n') ret.resize(ret.size()-1);   // make sure we don't break the protocol by adding extraneous newlines
+//        return ret;
+//    }
+//
+//    // write out the status line. overridden by superclasses (such as the HTTP session context)
+//    virtual void writeStatusline(CommandStatus status, const string& message)
+//    {
+//        // the default for TCP connections: just write out the line.
+//        write(makeStatusLine(status, message + '\n'));
+//    }
+
+    // forward a status line from a core to the client.
+    virtual void forwardStatusline(const string& line)
     {
-        string ret= getStatusString(status) + "  " + message;
-        while(ret[ret.size()-1]=='\n') ret.resize(ret.size()-1);   // make sure we don't break the protocol by adding extraneous newlines
-        return ret;
+        // default for tcp: just write out the line to the client.
+        write(line);
     }
 
-    // write out the status line. overridden by superclasses (such as the HTTP session context)
-    virtual void writeStatusline(CommandStatus status, const string& message)
+    virtual void forwardDataset(const string& line)
     {
-        // the default for TCP connections: just write out the line.
-        write(makeStatusLine(status, message + '\n'));
+        // default for tcp: just write out the line to the client.
+        write(line);
+    }
+
+    // send string to client indicating that a command was not found.
+    // there has to be a special case for this in the http handling code
+    // to change the http status-code, therefore this is virtual.
+    // 'text' must not be terminated by a newline.
+    virtual void commandNotFound(const string& text)
+    {
+        writef("%s %s\n", FAIL_STR, text.c_str());
     }
 };
 
 
 struct HTTPSessionContext: public SessionContext
 {
+    bool conversationFinished;  // client will be disconnected when this is false and there's no buffered data left.
+
     HTTPSessionContext(class Graphserv &_app, uint32_t cID, int sock):
-        SessionContext(app, cID, sock, CONN_HTTP)
+        SessionContext(app, cID, sock, CONN_HTTP),
+        conversationFinished(false)
     {
     }
 
@@ -525,15 +561,39 @@ struct HTTPSessionContext: public SessionContext
         writef("\n");
     }
 
-    void httpWriteErrorResponse(int code, const string &title, const string &description, const string &optionalFields= "")
+    void httpWriteErrorBody(const string& title, const string& description)
     {
-        httpWriteResponseHeader(code, title, "text/html", optionalFields);
         writef("<http><head><title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>\n", title.c_str(), title.c_str(), description.c_str());
     }
 
-    void writeStatusline(CommandStatus status, const string& message)
+    void httpWriteErrorResponse(int code, const string &title, const string &description, const string &optionalFields= "")
     {
+        httpWriteResponseHeader(code, title, "text/html", optionalFields);
+        httpWriteErrorBody(title, description);
+    }
 
+//    void writeStatusline(CommandStatus status, const string& message)
+//    {
+//        // xxx remove?
+//    }
+//
+
+    // forward statusline to http client, possibly mark client to be disconnected
+    void forwardStatusline(const string& line);
+
+    // forward data set to http client, possibly mark client to be disconnected.
+    void forwardDataset(const string& line)
+    {
+        write(line);
+        if(Cli::splitString(line.c_str()).empty())
+            conversationFinished= true; // empty line marks end of data set, we're ready to disconnect.
+    }
+
+    virtual void commandNotFound(const string& text)
+    {
+        // special case: send http status code 501 instead of 400.
+        httpWriteErrorResponse(501, "Not Implemented", string(FAIL_STR) + " " + text);
+        conversationFinished= true;
     }
 };
 
@@ -575,22 +635,6 @@ class Graphserv
                 for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
                 {
                     SessionContext *sc= i->second;
-
-                    if(sc->connectionType==CONN_HTTP && sc->coreID)
-                    {
-                        CoreInstance *ci= findInstance(sc->coreID);
-                        if(!ci)
-                        {
-                            // XXX
-//                            sc->httpWriteErrorResponse(500, "Internal Server Error", _("Your graphcore process has unexpectedly died."));
-                            continue;
-                        }
-                        if(!ci->getWritebufferSize() && !ci->hasDataForClient(sc->clientID))
-                        {
-                            deferredClientRemove(sc, 0);
-                        }
-                    }
-
                     double d= time-sc->stats.lastTime;
                     if(d>10.0)
                     {
@@ -675,7 +719,7 @@ class Graphserv
                                         break;
 
                                     if(sc.connectionType==CONN_HTTP)
-                                        lineFromHTTPClient(sc.linebuf, sc, time);
+                                        lineFromHTTPClient(sc.linebuf, *(HTTPSessionContext*)&sc, time);
                                     else
                                         lineFromClient(string(sc.linebuf), sc, time);
                                     sc.linebuf.clear();
@@ -730,6 +774,15 @@ class Graphserv
                 // remove outside of loop to avoid invalidating iterators
                 for(size_t i= 0; i<coresToRemove.size(); i++)
                     removeCoreInstance(coresToRemove[i]);
+
+                // go through any HTTP session contexts immediately after i/o.
+                for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
+                {
+                    SessionContext *sc= i->second;
+                    if(sc->connectionType==CONN_HTTP && ((HTTPSessionContext*)sc)->conversationFinished)
+                        // HTTP clients are disconnected once we don't have any more output for them.
+                        deferredClientDisconnect(sc);
+                }
             }
 
             return true;
@@ -778,7 +831,7 @@ class Graphserv
             return 0;
         }
 
-        void deferredClientRemove(SessionContext *sc, int _errno)
+        void deferredClientDisconnect(SessionContext *sc)
         {
             if(clientsToRemove.find(sc->clientID)!=clientsToRemove.end())
                 return;
@@ -890,8 +943,13 @@ class Graphserv
         SessionContext *createSession(int sock, ConnectionType connType= CONN_TCP)
         {
             uint32_t newID= ++sessionIDCounter;
-            if(!closeOnExec(sock)) return false;
-            SessionContext *newSession= new SessionContext(*this, newID, sock, connType);
+            if(!closeOnExec(sock)) return 0;
+            SessionContext *newSession;
+            switch(connType)
+            {
+                case CONN_TCP:  newSession= new SessionContext(*this, newID, sock, connType); break;
+                case CONN_HTTP: newSession= new HTTPSessionContext(*this, newID, sock); break;
+            }
             sessionContexts.insert( pair<uint32_t,SessionContext*>(newID, newSession) );
             return newSession;
         }
@@ -914,14 +972,10 @@ class Graphserv
         // handle a line of text arriving from a client.
         void lineFromClient(string line, SessionContext &sc, double timestamp)
         {
-//            if(sc.connectionType==CONN_HTTP)
-//            {
-//                lineFromHTTPClient(line, sc, timestamp);
-//                return;
-//            }
-
             sc.stats.linesSent++;
             sc.stats.bytesSent+= line.length();
+
+            // xxx handle case where client sends unknown/invalid command with terminating colon (slurp data set anyway)
 
             // if(sc connected && running command for this client accepts more data)
             //      append data to command queue entry
@@ -945,8 +999,8 @@ class Graphserv
                 }
                 else
                 {
-                   fprintf(stderr, "BUG? client %d has invalid coreID %d\n", sc.clientID, sc.coreID);
-//                    deferredClientRemove(&sc, 0);
+                    fprintf(stderr, "BUG? client %d has invalid coreID %d\n", sc.clientID, sc.coreID);
+//                    deferredClientDisconnect(&sc);
                     // XXX handle error. something like "ERROR! core exited unexpectedly" (if that ever happens)
                     return;
                 }
@@ -988,16 +1042,21 @@ class Graphserv
                     }
                     else
                     {
-                        sc.writef(FAIL_STR);
-                        sc.writef(_(" insufficient access level (command needs %s, you have %s)\n"),
-                                  gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]);
+//                        sc.writef(FAIL_STR);
+//                        sc.writef(_(" insufficient access level (command needs %s, you have %s)\n"),
+//                                  gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]);
+                        // forward line as if it came from core so that the http code can do its stuff
+                        sc.forwardStatusline(string(FAIL_STR " ") + format(_(" insufficient access level (command needs %s, you have %s)\n"),
+                                             gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]));
                     }
                 }
                 else
-                    sc.writef(_("%s no such core command '%s'.\n"), FAIL_STR, words[0].c_str());
+//                    sc.writef(_("%s no such core command '%s'.\n"), FAIL_STR, words[0].c_str());
+                    sc.commandNotFound(format(_("no such core command '%s'."), words[0].c_str()));
             }
             else
-                sc.writef(_("%s no such server command.\n"), FAIL_STR);
+//                sc.writef(_("%s no such server command.\n"), FAIL_STR);
+                sc.commandNotFound(format(_("no such server command '%s'."), words[0].c_str()));
 
 //            else if(sc connected)
 //            {
@@ -1017,11 +1076,9 @@ class Graphserv
         }
 
 
-        void lineFromHTTPClient(string line, SessionContext &sc, double timestamp)
+        void lineFromHTTPClient(string line, HTTPSessionContext &sc, double timestamp)
         {
-//            printf(line.c_str());
-
-            sc.http.request.push_back(line);
+            sc.http.request.push_back(line);    // xxx not needed if we don't parse the header, remove?
             if(line=="\n")  // end of request. CR is removed by buffering code
             {
                 sc.http.requestString= sc.http.request[0];
@@ -1030,14 +1087,14 @@ class Graphserv
                 if(words.size()!=3)     // this does not look like an HTTP request. disconnect the client.
                 {
                     fprintf(stderr, _("bad HTTP request string, disconnecting.\n"));
-                    deferredClientRemove(&sc, 0);
+                    deferredClientDisconnect(&sc);
                     return;
                 }
                 transform(words[2].begin(), words[2].end(),words[2].begin(), ::toupper);
                 if( (words[2]!="HTTP/1.0") && (words[2]!="HTTP/1.1") )  // accept HTTP/1.1 too, if only for debugging.
                 {
                     fprintf(stderr, _("unknown HTTP version, disconnecting.\n"));
-                    deferredClientRemove(&sc, 0);
+                    deferredClientDisconnect(&sc);
                     return;
                 }
 
@@ -1057,7 +1114,7 @@ class Graphserv
                             if( urilen-i<3 || sscanf(uri+i+1, "%02X", &hexChar)!=1 || !isprint(hexChar) )
                             {
                                 fprintf(stderr, _("i=%d len=%d %s %02X bad hex in request URI, disconnecting\n"), i, urilen, uri+i+1, hexChar);
-                                deferredClientRemove(&sc, 0);
+                                deferredClientDisconnect(&sc);
                                 return;
                             }
                             transformedURI+= (char)hexChar;
@@ -1076,10 +1133,8 @@ class Graphserv
 
                 if(uriwords.size()!=2)
                 {
-                    // XXX
-//                    sc.httpWriteErrorResponse(400, "Bad Request", _("Expecting a request string like: 'GET /corename/command+to+run HTTP/1.0' (see docs)."),
-//                                              string("X-GraphProcessor: " FAIL_STR " ") + _("Bad Request String."));
-                    deferredClientRemove(&sc, 0);
+                    sc.forwardStatusline(string(FAIL_STR) + " " + _("Expecting a request string like: 'GET /corename/command+to+run HTTP/1.0' (see docs)."));
+                    // client will be disconnected after response has been flushed.
                     return;
                 }
 
@@ -1087,39 +1142,13 @@ class Graphserv
                 CoreInstance *ci= findNamedInstance(uriwords[0]);
                 if(!ci)
                 {
-                    // XXX
-//                    sc.httpWriteErrorResponse(400, "Bad Request", _("No such instance."),
-//                                              string("X-GraphProcessor: " FAIL_STR " ") + _("No such instance."));
-                    deferredClientRemove(&sc, 0);
+                    sc.forwardStatusline(string(FAIL_STR) + " " + _("No such instance."));
                     return;
                 }
 
                 sc.coreID= ci->getID();
 
                 lineFromClient(uriwords[1] + '\n', sc, timestamp);
-
-//                printf("core ID: %d\n", sc.coreID);
-
-
-//                sc.writef("HTTP/1.0 200 OK\r\n");
-//                sc.writef("\r\n");
-//                sc.writef("uri: %s transformedURI: %s\n", uri, transformedURI.c_str());
-//                sc.flush();
-//                deferredClientRemove(&sc, 0);
-                return;
-
-                vector<string> commands= Cli::splitString(transformedURI.c_str(), ";");
-                sc.writef("HTTP/1.0 200 OK\r\n");
-                sc.writef("\r\n");
-                sc.writef("uri: %s transformedURI: %s\n", uri, transformedURI.c_str());
-                sc.writef("%d\n", commands.size());
-                for(int i= 0; i<commands.size(); i++)
-                {
-                    sc.writef("%s\n", commands[i].c_str());
-                    lineFromClient(commands[i] + "\n", sc, timestamp);
-                }
-                sc.flush();
-                deferredClientRemove(&sc, 0);
             }
         }
 
@@ -1135,44 +1164,21 @@ void CoreInstance::lineFromCore(string &line, class Graphserv &app)
 {
 //    printf("lineFromCore %s", line.c_str());
     SessionContext *sc= app.findClient(lastClientID);
-//    if(!sc) fprintf(stderr, "CoreInstance '%s', ID %u: lineFromCore(): invalid lastClientID %u\n", getName().c_str(), getID(), lastClientID);
     if(expectingReply)
     {
         expectingReply= false;
         if(line.find(":")!=string::npos)
             expectingDataset= true;
         if(sc)
-        {
-            if(sc->connectionType==CONN_HTTP)
-            {
-                vector<string> replyWords= Cli::splitString(line.c_str());
-                if(replyWords.empty())
-                {
-                    // XXX
-//                    sc->httpWriteErrorResponse(500, "Internal Server Error", "Empty reply from core. Please report.");
-                    app.deferredClientRemove(sc, 0);
-                    expectingDataset= false;
-                }
-                else
-                {
-                    string status= "X-GraphProcessor: " + line;
-                    // XXXX
-//                    if(replyWords[0]==SUCCESS_STR)
-//                        sc->httpWriteResponseHeader(200, "OK", "text/plain", status);
-//                    else if(replyWords[0]==FAIL_STR)
-//                        sc->httpWriteErrorResponse(400, "Bad Request", status);
-
-                }
-            }
-            else
-                sc->write(line);
-        }
+            sc->forwardStatusline(line);    // virtual fn does http-specific stuff
     }
     else if(expectingDataset)
     {
         if(Cli::splitString(line.c_str()).size()==0)
             expectingDataset= false;
-        if(sc) sc->write(line);
+        if(sc)
+            sc->forwardDataset(line);  // virtual function which also does http-specific stuff, if any
+//            sc->write(line);
     }
     else
     {
@@ -1203,7 +1209,60 @@ void SessionContext::writeFailed(int _errno)
 {
 //    printf("SessionContext::writeFailed()\n");
 //    abort();
-    app.deferredClientRemove(this, _errno);
+    app.deferredClientDisconnect(this);
+}
+
+static bool statuslineIndicatesDataset(const string& line)
+{
+    size_t pos= line.find(':');
+    if(pos==string::npos) return false;
+    for(; pos<line.size(); pos++)
+        if(!isspace(line[pos])) return false;
+    return true;
+}
+
+// forward statusline to http client, possibly mark client to be disconnected
+void HTTPSessionContext::forwardStatusline(const string& line)
+{
+    printf("HTTPSessionContext::forwardStatusline(%s)\n", line.c_str());
+    fflush(stdout);
+    vector<string> replyWords= Cli::splitString(line.c_str());
+    if(replyWords.empty())
+    {
+        httpWriteErrorResponse(500, "Internal Server Error", "Received empty status line from core. Please report.");
+        app.deferredClientDisconnect(this);
+    }
+    else
+    {
+        bool hasDataset= statuslineIndicatesDataset(line);
+        string headerStatusLine= "X-GraphProcessor: " + line;
+
+        switch(getStatusCode(replyWords[0]))
+        {
+            case CMD_SUCCESS:
+                httpWriteResponseHeader(200, "OK", "text/plain", headerStatusLine);
+                break;
+            case CMD_FAILURE:
+                httpWriteErrorResponse(400, "Bad Request", line, headerStatusLine);
+                break;
+            case CMD_ERROR:
+                httpWriteErrorResponse(500, "Internal Server Error", line, headerStatusLine);
+                break;
+            case CMD_NONE:
+                httpWriteErrorResponse(404, "Not Found", line, headerStatusLine);
+                break;
+            case CMD_ACCESSDENIED:
+            case CMD_NOT_FOUND:
+                // XXX handle these where?
+                break;
+        }
+
+        if(!hasDataset)
+            conversationFinished= true;
+
+        printf("conversationFinished: %s\n", conversationFinished? "true": "false");
+        fflush(stdout);
+    }
 }
 
 
