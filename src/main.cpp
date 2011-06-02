@@ -44,6 +44,7 @@ enum CommandStatus
 static const string statusMsgs[]=
 { CORECMDSTATUSSTRINGS, DENIED_STR, FAIL_STR };
 
+__attribute__((unused))
 static const string& getStatusString(CommandStatus status)
 {
     return statusMsgs[status];
@@ -551,26 +552,30 @@ struct HTTPSessionContext: public SessionContext
     {
     }
 
-    void httpWriteResponseHeader(int code, const string &title, const string &contentType, const string &optionalFields= "")
+    void httpWriteResponseHeader(int code, const string &title, const string &contentType, const string &optionalField= "")
     {
-        writef("HTTP/1.0 %d %s\n", code, title.c_str());
-        writef("Content-Type: %s\n", contentType.c_str());
-        if(optionalFields.length())
+        writef("HTTP/1.0 %d %s\r\n", code, title.c_str());
+        writef("Content-Type: %s\r\n", contentType.c_str());
+        if(optionalField.length())
         {
-            write(optionalFields.c_str());
-            if(optionalFields[optionalFields.size()-1]!='\n') write("\n");
+            string field= optionalField;
+            while(isspace(field[field.size()-1]))
+                field.resize(field.size()-1);
+            write(field);
+            write("\r\n");  // make sure we have consistent newlines in the header.
         }
-        writef("\n");
+        writef("\r\n");
     }
 
     void httpWriteErrorBody(const string& title, const string& description)
     {
-        writef("<http><head><title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>\n", title.c_str(), title.c_str(), description.c_str());
+//        writef("<http><head><title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>\n", title.c_str(), title.c_str(), description.c_str());
+        write(title + "\n" + description + "\n");
     }
 
-    void httpWriteErrorResponse(int code, const string &title, const string &description, const string &optionalFields= "")
+    void httpWriteErrorResponse(int code, const string &title, const string &description, const string &optionalField= "")
     {
-        httpWriteResponseHeader(code, title, "text/html", optionalFields);
+        httpWriteResponseHeader(code, title, "text/plain", optionalField);
         httpWriteErrorBody(title, description);
     }
 
@@ -787,7 +792,7 @@ class Graphserv
                         ((HTTPSessionContext*)sc)->conversationFinished &&
                         sc->writeBufferEmpty() &&
                         ((ci= findInstance(sc->coreID))==NULL || ci->hasDataForClient(sc->clientID)==false) )
-                        deferredClientDisconnect(sc);   // xxx thread?
+                        shutdownClient(sc);
                 }
             }
 
@@ -837,10 +842,19 @@ class Graphserv
             return 0;
         }
 
-        void deferredClientDisconnect(SessionContext *sc)
+        // shut down the client socket. disconnect will happen in select loop when read returns zero.
+        void shutdownClient(SessionContext *sc)
         {
-            // xxx use shutdown
-            // http://unix.derkeiler.com/Newsgroups/comp.unix.programmer/2004-02/0748.html
+            if(shutdown(sc->sockfd, SHUT_RDWR)<0)
+            {
+                perror("shutdown");
+                forceClientDisconnect(sc);
+            }
+        }
+
+        // mark client connection to be forcefully broken.
+        void forceClientDisconnect(SessionContext *sc)
+        {
             if(clientsToRemove.find(sc->clientID)!=clientsToRemove.end())
                 return;
             clientsToRemove.insert(sc->clientID);
@@ -1008,7 +1022,6 @@ class Graphserv
                 else
                 {
                     fprintf(stderr, "BUG? client %d has invalid coreID %d\n", sc.clientID, sc.coreID);
-//                    deferredClientDisconnect(&sc);
                     // XXX handle error. something like "ERROR! core exited unexpectedly" (if that ever happens)
                     return;
                 }
@@ -1086,6 +1099,7 @@ class Graphserv
 
         void lineFromHTTPClient(string line, HTTPSessionContext &sc, double timestamp)
         {
+            // xxx handle case where someone tries to GET something like "add-arcs:"
             sc.http.request.push_back(line);    // xxx not needed if we don't parse the header, remove?
             if(line=="\n")  // end of request. CR is removed by buffering code
             {
@@ -1095,14 +1109,14 @@ class Graphserv
                 if(words.size()!=3)     // this does not look like an HTTP request. disconnect the client.
                 {
                     fprintf(stderr, _("bad HTTP request string, disconnecting.\n"));
-                    deferredClientDisconnect(&sc);
+                    shutdownClient(&sc);
                     return;
                 }
                 transform(words[2].begin(), words[2].end(),words[2].begin(), ::toupper);
                 if( (words[2]!="HTTP/1.0") && (words[2]!="HTTP/1.1") )  // accept HTTP/1.1 too, if only for debugging.
                 {
                     fprintf(stderr, _("unknown HTTP version, disconnecting.\n"));
-                    deferredClientDisconnect(&sc);
+                    shutdownClient(&sc);
                     return;
                 }
 
@@ -1122,7 +1136,7 @@ class Graphserv
                             if( urilen-i<3 || sscanf(uri+i+1, "%02X", &hexChar)!=1 || !isprint(hexChar) )
                             {
                                 fprintf(stderr, _("i=%d len=%d %s %02X bad hex in request URI, disconnecting\n"), i, urilen, uri+i+1, hexChar);
-                                deferredClientDisconnect(&sc);
+                                shutdownClient(&sc);
                                 return;
                             }
                             transformedURI+= (char)hexChar;
@@ -1212,12 +1226,10 @@ void CoreInstance::flushCommandQ(class Graphserv &app)
 }
 
 
-// error handler called because of closed connection etc. tell app to disconnect this client.
+// error handler called because of broken connection or similar. tell app to disconnect this client.
 void SessionContext::writeFailed(int _errno)
 {
-//    printf("SessionContext::writeFailed()\n");
-//    abort();
-    app.deferredClientDisconnect(this);
+    app.forceClientDisconnect(this); // probably ripped out the cable or something. no use for shutdown.
 }
 
 static bool statuslineIndicatesDataset(const string& line)
@@ -1238,7 +1250,7 @@ void HTTPSessionContext::forwardStatusline(const string& line)
     if(replyWords.empty())
     {
         httpWriteErrorResponse(500, "Internal Server Error", "Received empty status line from core. Please report.");
-        app.deferredClientDisconnect(this);
+        app.shutdownClient(this);
     }
     else
     {
@@ -1249,6 +1261,7 @@ void HTTPSessionContext::forwardStatusline(const string& line)
         {
             case CMD_SUCCESS:
                 httpWriteResponseHeader(200, "OK", "text/plain", headerStatusLine);
+                write(line);
                 break;
             case CMD_FAILURE:
                 httpWriteErrorResponse(400, "Bad Request", line, headerStatusLine);
