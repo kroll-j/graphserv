@@ -496,7 +496,7 @@ struct SessionContext: public NonblockWriter
 
     ~SessionContext()
     {
-        setNonblocking(sockfd, false);  // force output to be drained on closing.
+        setNonblocking(sockfd, false);  // force output to be drained on close.
         close(sockfd);
     }
 
@@ -787,7 +787,7 @@ class Graphserv
                         ((HTTPSessionContext*)sc)->conversationFinished &&
                         sc->writeBufferEmpty() &&
                         ((ci= findInstance(sc->coreID))==NULL || ci->hasDataForClient(sc->clientID)==false) )
-                        deferredClientDisconnect(sc);
+                        deferredClientDisconnect(sc);   // xxx thread?
                 }
             }
 
@@ -839,6 +839,8 @@ class Graphserv
 
         void deferredClientDisconnect(SessionContext *sc)
         {
+            // xxx use shutdown
+            // http://unix.derkeiler.com/Newsgroups/comp.unix.programmer/2004-02/0748.html
             if(clientsToRemove.find(sc->clientID)!=clientsToRemove.end())
                 return;
             clientsToRemove.insert(sc->clientID);
