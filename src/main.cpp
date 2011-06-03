@@ -21,14 +21,21 @@
 #include <netinet/in.h>
 #include <sys/wait.h>
 #include <sys/time.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "clibase.h"
 
 
+// defaults for tcp & http listen ports
 #define DEFAULT_TCP_PORT    6666
 #define DEFAULT_HTTP_PORT   8090
+// listen backlog: how large may the queue of incoming connections grow
 #define LISTEN_BACKLOG      100
 
+// default filenames for htpasswd and group file
+#define DEFAULT_HTPASSWD_FILENAME   "gspasswd.conf"
+#define DEFAULT_GROUP_FILENAME      "gsgroups.conf"
 
 
 // the command status codes, including those used in the core.
@@ -39,10 +46,27 @@ enum CommandStatus
     CMD_ACCESSDENIED,       // insufficient access level for command
     CMD_NOT_FOUND,          // "command not found" results in a different HTTP status code, therefore it needs its own code.
 };
-
 // NOTE: these entries must match the status codes above.
 static const string statusMsgs[]=
 { CORECMDSTATUSSTRINGS, DENIED_STR, FAIL_STR };
+
+
+enum AccessLevel
+{
+    ACCESS_READ= 0,
+    ACCESS_WRITE,
+    ACCESS_ADMIN
+};
+// these must match the access levels.
+static const char *gAccessLevelNames[]=
+    { "read", "write", "admin" };
+
+enum ConnectionType
+{
+    CONN_TCP= 0,
+    CONN_HTTP
+};
+
 
 __attribute__((unused))
 static const string& getStatusString(CommandStatus status)
@@ -60,6 +84,48 @@ static CommandStatus getStatusCode(const string& msg)
 }
 
 
+
+// abstract base class for authorities
+class Authority
+{
+    public:
+        Authority() { }
+        virtual ~Authority() { }
+
+        virtual string getName()= 0;
+        // authorize a user using given credentials: set its access level to the appropriate value on success. return value indicates success.
+        virtual bool authorize(class SessionContext& sc, const string& credentials)= 0;
+};
+
+// the password authority reads from a htpasswd file and corresponding group file.
+// authorize() takes a string in the form "user:password".
+class PasswordAuth: public Authority
+{
+    string htpasswdFilename;
+    string groupFilename;
+
+    struct userInfo
+    {
+        string hash;                // the crypt()ed password
+        AccessLevel accessLevel;    // maximum access level
+    };
+    map<string,userInfo> users;
+    time_t lastCacheRefresh;
+
+    vector<string> splitLine(string line, char sep= ':');
+    void refreshFileCache();
+    bool readCredentialFiles();
+
+    public:
+        PasswordAuth(const string& _htpasswdFilename, const string& _groupFilename):
+            htpasswdFilename(_htpasswdFilename), groupFilename(_groupFilename), lastCacheRefresh(0)
+        { }
+
+        string getName() { return "password"; }
+        bool authorize(class SessionContext& sc, const string& credentials);
+};
+
+
 // time measurement
 double getTime()
 {
@@ -67,23 +133,6 @@ double getTime()
     if(gettimeofday(&tv, 0)<0) perror("gettimeofday");
     return tv.tv_sec + tv.tv_usec*0.000001;
 }
-
-
-
-enum AccessLevel
-{
-    ACCESS_READ= 0,
-    ACCESS_WRITE,
-    ACCESS_ADMIN
-};
-static const char *gAccessLevelNames[]=
-    { "ACCESS_READ", "ACCESS_WRITE", "ACCESS_ADMIN" };
-
-enum ConnectionType
-{
-    CONN_TCP= 0,
-    CONN_HTTP
-};
 
 
 
@@ -495,7 +544,7 @@ struct SessionContext: public NonblockWriter
         setWriteFd(sockfd);
     }
 
-    ~SessionContext()
+    virtual ~SessionContext()
     {
         setNonblocking(sockfd, false);  // force output to be drained on close.
         close(sockfd);
@@ -611,6 +660,23 @@ class Graphserv
         Graphserv(): cli(*this)
         {
             initCoreCommandTable();
+
+            Authority *auth= new PasswordAuth(DEFAULT_HTPASSWD_FILENAME, DEFAULT_GROUP_FILENAME);
+            authorities.insert(pair<string,Authority*> (auth->getName(), auth));
+        }
+
+        ~Graphserv()
+        {
+            for(map<string,Authority*>::iterator it= authorities.begin(); it!=authorities.end(); it++)
+                delete it->second;
+            authorities.clear();
+        }
+
+        Authority *findAuthority(const string& name)
+        {
+            map<string,Authority*>::iterator it= authorities.find(name);
+            if(it!=authorities.end()) return it->second;
+            return 0;
         }
 
         bool run()
@@ -878,6 +944,8 @@ class Graphserv
 
         ServCli cli;
 
+        map<string,Authority*> authorities;
+
         // create a reusable socket listening on the given port.
         int openListenSocket(int port)
         {
@@ -1067,7 +1135,7 @@ class Graphserv
 //                        sc.writef(_(" insufficient access level (command needs %s, you have %s)\n"),
 //                                  gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]);
                         // forward line as if it came from core so that the http code can do its stuff
-                        sc.forwardStatusline(string(FAIL_STR " ") + format(_(" insufficient access level (command needs %s, you have %s)\n"),
+                        sc.forwardStatusline(string(FAIL_STR " ") + format(_(" insufficient access level (command needs %s access, you have %s access)\n"),
                                              gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]));
                     }
                 }
@@ -1179,6 +1247,122 @@ class Graphserv
 
 uint32_t Graphserv::coreIDCounter= 0;
 uint32_t Graphserv::sessionIDCounter= 0;
+
+
+vector<string> PasswordAuth::splitLine(string line, char sep)
+{
+    string s;
+    vector<string> ret;
+    if(line.empty()) return ret;
+    while(isspace(line[line.size()-1])) line.resize(line.size()-1);
+    line+= sep;
+    for(size_t i= 0; i<line.size(); i++)
+    {
+        if(line[i]==sep)
+        { ret.push_back(s); s.clear(); }
+        else s+= line[i];
+    }
+    return ret;
+}
+
+bool PasswordAuth::readCredentialFiles()
+{
+    char line[1024];
+    FILE *f= fopen(htpasswdFilename.c_str(), "r");
+    if(!f) { perror(("couldn't open " + groupFilename).c_str()); return false; }
+    map<string,userInfo> newUsers;
+    while(fgets(line, 1024, f))
+    {
+        vector<string> fields= splitLine(line);
+        if(fields.size()!=2 || fields[0].empty() || fields[1].size()!=13)
+        {
+            fprintf(stderr, "invalid line in htpasswd file\n");
+            return false;
+        }
+        userInfo ui= { fields[1], ACCESS_READ };
+        newUsers[fields[0]]= ui;
+    }
+
+    f= fopen(groupFilename.c_str(), "r");
+    if(!f) { perror(("couldn't open " + groupFilename).c_str()); return false; }
+    while(fgets(line, 1024, f))
+    {
+        vector<string> fields= splitLine(line);
+        if(fields.size()!=4 || fields[0].empty())
+        {
+            fprintf(stderr, "invalid line in group file\n");
+            return false;
+        }
+        AccessLevel level;
+        if(fields[0]==gAccessLevelNames[ACCESS_READ]) level= ACCESS_READ;
+        else if(fields[0]==gAccessLevelNames[ACCESS_WRITE]) level= ACCESS_WRITE;
+        else if(fields[0]==gAccessLevelNames[ACCESS_ADMIN]) level= ACCESS_ADMIN;
+        else
+        {
+            fprintf(stderr, "invalid access level '%s' in group file\n", fields[0].c_str());
+            return false;
+        }
+
+        // go through the specified users and elevate their access levels
+        vector<string> usernames= splitLine(fields[3], ',');
+        for(vector<string>::iterator it= usernames.begin(); it!=usernames.end(); it++)
+        {
+            map<string,userInfo>::iterator user= newUsers.find(*it);
+            if(user!=newUsers.end() && level>user->second.accessLevel)
+            {
+//                printf("%s -> %s\n", user->first.c_str(), fields[0].c_str());
+                user->second.accessLevel= level;
+            }
+        }
+    }
+
+    users.clear();
+    users= newUsers;
+    return true;
+}
+
+void PasswordAuth::refreshFileCache()
+{
+    time_t curtime= time(0);
+    struct stat st;
+    bool needRefresh= false;
+    // check if any of the credential files have changed since last refresh.
+    if(stat(htpasswdFilename.c_str(), &st)<0)
+    { perror("couldn't stat passwdfile"); return; }
+    if(st.st_mtime>=lastCacheRefresh) needRefresh= true;
+    else if(stat(groupFilename.c_str(), &st)<0)
+    { perror("couldn't stat groupfile"); return; }
+    if(st.st_mtime>=lastCacheRefresh || needRefresh)
+    {
+        lastCacheRefresh= curtime;
+        readCredentialFiles();
+    }
+}
+
+bool PasswordAuth::authorize(class SessionContext& sc, const string& credentials)
+{
+    refreshFileCache();
+
+    vector<string> cred= splitLine(credentials);
+    if(cred.size()!=2 || cred[0].empty()||cred[1].empty())
+    { fprintf(stderr, "invalid credentials.\n"); return false; }
+
+    map<string,userInfo>::iterator it= users.find(cred[0]);
+    if(it==users.end()) return false;
+
+    char *crypted= crypt(cred[1].c_str(), it->second.hash.c_str());
+    if(crypted != it->second.hash)
+    {
+        fprintf(stderr, "PasswordAuth: failure, user %s\n", it->first.c_str());
+        return false;
+    }
+
+    fprintf(stderr, "PasswordAuth: success, user %s, level %s\n", it->first.c_str(), gAccessLevelNames[it->second.accessLevel]);
+
+    sc.accessLevel= it->second.accessLevel;
+
+    return true;
+}
 
 
 
@@ -1383,6 +1567,38 @@ class ccUseGraph: public ServCmd_RTVoid
 
 };
 
+class ccAuthorize: public ServCmd_RTVoid
+{
+    public:
+        string getName() { return "authorize"; }
+        string getSynopsis() { return getName() + " authority credentials"; }
+        string getHelpText() { return _("authorize authorize with the given authority using the given credentials."); }
+        AccessLevel getAccessLevel() { return ACCESS_READ; }
+
+        CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
+        {
+            if(words.size()!=3)
+            {
+                syntaxError();
+                return CMD_FAILURE;
+            }
+            Authority *auth= app.findAuthority(words[1]);
+            if(!auth)
+            {
+                cliFailure(_("no such authority '%s'.\n"), words[1].c_str());
+                return CMD_FAILURE;
+            }
+            if(!auth->authorize(sc, words[2]))
+            {
+                cliFailure(_("authorization failure.\n"));
+                return CMD_FAILURE;
+            }
+            cliSuccess(_("access level: %s\n"), gAccessLevelNames[sc.accessLevel]);
+            return CMD_SUCCESS;
+        }
+
+};
+
 class ccInfo: public ServCmd_RTOther
 {
     public:
@@ -1420,6 +1636,7 @@ ServCli::ServCli(Graphserv &_app): app(_app)
     addCommand(new ccCreateGraph());
     addCommand(new ccUseGraph());
     addCommand(new ccInfo());
+    addCommand(new ccAuthorize());
 }
 
 

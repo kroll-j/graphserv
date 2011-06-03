@@ -1,5 +1,5 @@
 CCFLAGS=-Wall -Igraphcore/src
-LDFLAGS=
+LDFLAGS=-lcrypt
 
 all: 		Release Debug
 
