@@ -6,10 +6,10 @@ all: 		Release Debug
 Release:	graphserv
 Debug:		graphserv.dbg
 
-graphcore/graphcore:	#
+graphcore/graphcore:	graphcore/src/*
 		make -C graphcore Release
 
-graphcore/graphcore.dbg:	#
+graphcore/graphcore.dbg:	graphcore/src/*
 		make -C graphcore Debug
 
 graphserv:	src/main.cpp graphcore/src/*.h graphcore/graphcore
@@ -25,3 +25,4 @@ updatelang:	#
 
 # test:		Release Debug
 # 		python test/talkback.py test/graphserv.tb ./graphserv
+

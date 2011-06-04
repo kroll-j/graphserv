@@ -938,9 +938,8 @@ class Graphserv
                 {
                     // write command to instance
                     CoreInstance *ci= findInstance(sc.coreID);
-                    sc.stats.linesQueued++;
-                    if(ci) ci->queueCommand(line, sc.clientID, hasDataSet);
-                    else sc.writef(_("%s client has invalid core ID %u\n"), FAIL_STR, sc.clientID);
+                    if(ci) ci->queueCommand(line, sc.clientID, hasDataSet), sc.stats.linesQueued++;
+                    else sc.writef(_("%s client has invalid core ID %u\n"), FAIL_STR, sc.coreID);
                 }
                 else
                 {
@@ -1119,9 +1118,8 @@ class Graphserv
                 }
                 else
                 {
-                    fprintf(stderr, "BUG? client %d has invalid coreID %d\n", sc.clientID, sc.coreID);
-                    // XXX handle error. something like "ERROR! core exited unexpectedly" (if that ever happens)
-                    return;
+                    fprintf(stderr, "client %d has invalid coreID %d, zeroing.\n", sc.clientID, sc.coreID);
+                    sc.coreID= 0;
                 }
             }
 
@@ -1142,53 +1140,14 @@ class Graphserv
             {
                 sc.stats.servCommandsSent++;
                 if(hasDataSet)  // currently, no server command takes a data set.
-                    sc.writef(_("%s %s accepts no data set.\n"), FAIL_STR, words[0].c_str());
+//                    sc.writef(_("%s %s accepts no data set.\n"), FAIL_STR, words[0].c_str());
+                    sc.forwardStatusline(format(_("%s %s accepts no data set.\n"), FAIL_STR, words[0].c_str()));
                 else cli.execute(cmd, words, sc);
             }
             else if(sc.coreID)
-            {
                 sendCoreCommand(sc, line, hasDataSet, &words);
-//                sc.stats.coreCommandsSent++;
-//                CoreCommandInfo *cci= findCoreCommand(words[0]);
-//                if(cci)
-//                {
-//                    if(sc.accessLevel>=cci->accessLevel)
-//                    {
-//                        // write command to instance
-//                        CoreInstance *ci= findInstance(sc.coreID);
-//                        sc.stats.linesQueued++;
-//                        if(ci) ci->queueCommand(line, sc.clientID, hasDataSet);
-//                        else sc.writef(_("%s client has invalid core ID %u\n"), FAIL_STR, sc.clientID);
-//                    }
-//                    else
-//                    {
-//                        // forward line as if it came from core so that the http code can do its stuff
-//                        sc.forwardStatusline(string(FAIL_STR " ") + format(_(" insufficient access level (command needs %s access, you have %s access)\n"),
-//                                             gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]));
-//                    }
-//                }
-//                else
-//                    sc.commandNotFound(format(_("no such core command '%s'."), words[0].c_str()));
-            }
             else
-//                sc.writef(_("%s no such server command.\n"), FAIL_STR);
                 sc.commandNotFound(format(_("no such server command '%s'."), words[0].c_str()));
-
-//            else if(sc connected)
-//            {
-//                if(core-command found)
-//                {
-//                    if(has sufficient access level)
-//                        write command to instance
-//                    else
-//                        write error("insufficient access level");
-//                }
-//                else
-//                    write error("no such command");
-//
-//            }
-//            else
-//                write error("no such command");
         }
 
 
@@ -1270,7 +1229,6 @@ class Graphserv
         }
 
         friend class ccInfo;
-        friend class ccHelp;
 };
 
 uint32_t Graphserv::coreIDCounter= 0;
@@ -1506,8 +1464,9 @@ CommandStatus ServCli::execute(string command, class SessionContext &sc)
     ServCmd *cmd= (ServCmd*)findCommand(words[0]);
     if(!cmd)
     {
-        sc.writef(FAIL_STR);
-        sc.writef(_(" no such server command.\n"));
+//        sc.writef(FAIL_STR);
+//        sc.writef(_(" no such server command.\n"));
+        sc.forwardStatusline(FAIL_STR + string(_(" no such server command.\n")));
         return CMD_FAILURE;
     }
     return execute(cmd, words, sc);
@@ -1517,9 +1476,11 @@ CommandStatus ServCli::execute(ServCmd *cmd, vector<string> &words, SessionConte
 {
     if(cmd->getAccessLevel() > sc.accessLevel)
     {
-        sc.writef(FAIL_STR);
-        sc.writef(_(" insufficient access level (command needs %s, you have %s)\n"),
-                  gAccessLevelNames[cmd->getAccessLevel()], gAccessLevelNames[sc.accessLevel]);
+//        sc.writef(FAIL_STR);
+//        sc.writef(_(" insufficient access level (command needs %s, you have %s)\n"),
+//                  gAccessLevelNames[cmd->getAccessLevel()], gAccessLevelNames[sc.accessLevel]);
+        sc.forwardStatusline(FAIL_STR + format(_(" insufficient access level (command needs %s, you have %s)\n"),
+                             gAccessLevelNames[cmd->getAccessLevel()], gAccessLevelNames[sc.accessLevel]));
         return CMD_FAILURE;
     }
     CommandStatus ret;
@@ -1530,7 +1491,7 @@ CommandStatus ServCli::execute(ServCmd *cmd, vector<string> &words, SessionConte
             break;
         case CliCommand::RT_NONE:
             ret= ((ServCmd_RTVoid*)cmd)->execute(words, app, sc);
-            sc.writef(cmd->getStatusMessage().c_str());
+            sc.forwardStatusline(cmd->getStatusMessage().c_str());
             break;
         default:
             ret= CMD_ERROR;
@@ -1756,13 +1717,9 @@ class ccHelp: public ServCmd_RTOther
             vector<CliCommand*> &commands= cli.getCommands();
             for(size_t i= 0; i<commands.size(); i++)
                 sc.forwardDataset("# " + commands[i]->getSynopsis() + "\n");
+            sc.forwardDataset(string("# ") + _("note: 'corehelp' prints help on core commands when connected to a core.\n"));
             sc.forwardDataset("\n");
 
-            if(sc.coreID)
-            {
-                usleep(1000000);
-                app.sendCoreCommand(sc, getName()+"\n", false);
-            }
 
             return CMD_SUCCESS;
         }
