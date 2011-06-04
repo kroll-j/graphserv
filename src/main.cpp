@@ -771,7 +771,7 @@ class Graphserv
                         ssize_t sz= recv(sockfd, buf, sizeof(buf), 0);
                         if(sz==0)
                         {
-                            printf("client %d has closed the connection\n", sc.clientID);
+                            printf("client %d: connection closed.\n", sc.clientID);
                             clientsToRemove.insert(sc.clientID);
                         }
                         else if(sz<0)
@@ -926,6 +926,34 @@ class Graphserv
             clientsToRemove.insert(sc->clientID);
         }
 
+        // send a command from this client to the core it is connected to.
+        void sendCoreCommand(SessionContext& sc, string line, bool hasDataSet, vector<string> *cmdwords= 0)
+        {
+            const vector<string>& words= (cmdwords? *cmdwords: Cli::splitString(line.c_str()));
+            sc.stats.coreCommandsSent++;
+            CoreCommandInfo *cci= findCoreCommand(words[0]);
+            if(cci)
+            {
+                if(sc.accessLevel>=cci->accessLevel)
+                {
+                    // write command to instance
+                    CoreInstance *ci= findInstance(sc.coreID);
+                    sc.stats.linesQueued++;
+                    if(ci) ci->queueCommand(line, sc.clientID, hasDataSet);
+                    else sc.writef(_("%s client has invalid core ID %u\n"), FAIL_STR, sc.clientID);
+                }
+                else
+                {
+                    // forward line as if it came from core so that the http code can do its stuff
+                    sc.forwardStatusline(string(FAIL_STR " ") + format(_(" insufficient access level (command needs %s access, you have %s access)\n"),
+                                         gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]));
+                }
+            }
+            else
+                sc.commandNotFound(format(_("no such core command '%s'."), words[0].c_str()));
+        }
+
+
     private:
         struct CoreCommandInfo
         {
@@ -1067,6 +1095,8 @@ class Graphserv
 
             // xxx handle case where client sends unknown/invalid command with terminating colon (slurp data set anyway)
 
+            // xxx todo: handle i/o redirection (ADMIN access, server?)
+
             // if(sc connected && running command for this client accepts more data)
             //      append data to command queue entry
             if(sc.coreID)
@@ -1117,31 +1147,28 @@ class Graphserv
             }
             else if(sc.coreID)
             {
-                sc.stats.coreCommandsSent++;
-                CoreCommandInfo *cci= findCoreCommand(words[0]);
-                if(cci)
-                {
-                    if(sc.accessLevel>=cci->accessLevel)
-                    {
-                        // write command to instance
-                        CoreInstance *ci= findInstance(sc.coreID);
-                        sc.stats.linesQueued++;
-                        if(ci) ci->queueCommand(line, sc.clientID, hasDataSet);
-                        else sc.writef(_("%s client has invalid core ID %u\n"), FAIL_STR, sc.clientID);
-                    }
-                    else
-                    {
-//                        sc.writef(FAIL_STR);
-//                        sc.writef(_(" insufficient access level (command needs %s, you have %s)\n"),
-//                                  gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]);
-                        // forward line as if it came from core so that the http code can do its stuff
-                        sc.forwardStatusline(string(FAIL_STR " ") + format(_(" insufficient access level (command needs %s access, you have %s access)\n"),
-                                             gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]));
-                    }
-                }
-                else
-//                    sc.writef(_("%s no such core command '%s'.\n"), FAIL_STR, words[0].c_str());
-                    sc.commandNotFound(format(_("no such core command '%s'."), words[0].c_str()));
+                sendCoreCommand(sc, line, hasDataSet, &words);
+//                sc.stats.coreCommandsSent++;
+//                CoreCommandInfo *cci= findCoreCommand(words[0]);
+//                if(cci)
+//                {
+//                    if(sc.accessLevel>=cci->accessLevel)
+//                    {
+//                        // write command to instance
+//                        CoreInstance *ci= findInstance(sc.coreID);
+//                        sc.stats.linesQueued++;
+//                        if(ci) ci->queueCommand(line, sc.clientID, hasDataSet);
+//                        else sc.writef(_("%s client has invalid core ID %u\n"), FAIL_STR, sc.clientID);
+//                    }
+//                    else
+//                    {
+//                        // forward line as if it came from core so that the http code can do its stuff
+//                        sc.forwardStatusline(string(FAIL_STR " ") + format(_(" insufficient access level (command needs %s access, you have %s access)\n"),
+//                                             gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]));
+//                    }
+//                }
+//                else
+//                    sc.commandNotFound(format(_("no such core command '%s'."), words[0].c_str()));
             }
             else
 //                sc.writef(_("%s no such server command.\n"), FAIL_STR);
@@ -1243,6 +1270,7 @@ class Graphserv
         }
 
         friend class ccInfo;
+        friend class ccHelp;
 };
 
 uint32_t Graphserv::coreIDCounter= 0;
@@ -1384,7 +1412,6 @@ void CoreInstance::lineFromCore(string &line, class Graphserv &app)
             expectingDataset= false;
         if(sc)
             sc->forwardDataset(line);  // virtual function which also does http-specific stuff, if any
-//            sc->write(line);
     }
     else
     {
@@ -1603,7 +1630,7 @@ class ccInfo: public ServCmd_RTOther
 {
     public:
         string getName() { return "i"; }
-        string getSynopsis() { return getName() + " graphname"; }
+        string getSynopsis() { return getName(); }
         string getHelpText() { return _("print info (debugging)"); }
         AccessLevel getAccessLevel() { return ACCESS_READ; }
 
@@ -1630,6 +1657,118 @@ class ccInfo: public ServCmd_RTOther
 
 };
 
+/*
+class ccHelp: public CliCommand_RTOther
+{
+    private:
+        CoreCli *cli;
+
+    public:
+        ccHelp(CoreCli *_cli): cli(_cli)
+        { }
+
+        string getSynopsis()        { return getName() + _(" [COMMAND] / ") + getName() + _(" operators"); }
+        string getHelpText()        { return _("help: list commands\n# help COMMAND: get help on COMMAND\n# help operators: print help on operators"); }
+
+        CommandStatus execute(vector<string> words, CoreCli *cli, Digraph *graph, bool hasDataSet, FILE *inFile, FILE *outFile)
+        {
+            if(words.size()>2 || hasDataSet)
+            {
+                syntaxError();
+                return CMD_FAILURE;
+            }
+            if(words.size()==2)
+            {
+                if(words[1]=="operators")
+                {
+                    cliSuccess("%s\n", outFile==stdout? ":": "");
+                    cout << lastStatusMessage << _("\
+# Operators can be used to combine the output of two commands into one\n\
+# data-set. They are used with infox syntax:\n\
+# \n\
+# <COMMAND> <OPERATOR> <COMMAND>\n\
+# \n\
+# This way, a composite command is formed. Note that if either operant\n\
+# fails, the composite command also fails.\n\
+# \n\
+# The following operators are currently specified:\n\
+# \n\
+# intersection (&&):\n\
+# The intersection operator takes two operants, both of wich must\n\
+# return a set of nodes. The result of the composite command is a set of\n\
+# nodes that contains only the nodes that are in both, the result of the\n\
+# left operand, and the result of the right. If and only if either\n\
+# operant returns NONE, the result is NONE. \n\
+# \n\
+# subtraction (&&!):\n\
+# The subtraction operator takes two operants, both of\n\
+# which must return a set of nodes. The result of the composite command is\n\
+# a set of nodes that contains only the nodes that are in the result of\n\
+# the left operand but not inthe result of the right operant. If and only\n\
+# if the left operant returns NONE, the result is NONE. If the right\n\
+# operant returns NONE, the result is the result of the left operant.\n\n");
+                    return CMD_SUCCESS;
+                }
+                CliCommand *cmd= cli->findCommand(words[1]);
+                if(!cmd)
+                {
+                    cliFailure(_("%s: no such command.\n"), words[1].c_str());
+                    cout << lastStatusMessage << endl;
+                    return CMD_FAILURE;
+                }
+                cliSuccess("%s\n", outFile==stdout? ":": "");
+                cout << lastStatusMessage << "# " << cmd->getSynopsis() << endl << "# " << cmd->getHelpText() << endl;
+            }
+            else
+            {
+                cliSuccess(_("available commands%s\n"), outFile==stdout? ":": "");
+                cout << lastStatusMessage;
+                vector<CliCommand*> &commands= cli->getCommands();
+                for(unsigned i= 0; i<commands.size(); i++)
+                    cout << "# " << commands[i]->getSynopsis() << endl;
+            }
+            cout << endl;
+            return CMD_SUCCESS;
+        }
+};
+*/
+
+
+class ccHelp: public ServCmd_RTOther
+{
+    ServCli &cli;
+
+    public:
+        string getName() { return "help"; }
+        string getSynopsis() { return getName(); }
+        string getHelpText() { return _("get help on commands"); }
+        AccessLevel getAccessLevel() { return ACCESS_READ; }
+
+        ccHelp(ServCli &_cli): cli(_cli)
+        { }
+
+        CommandStatus execute(vector<string> words, Graphserv &app, SessionContext &sc)
+        {
+
+
+            cliSuccess(_("available commands:\n"));
+            sc.forwardStatusline(lastStatusMessage);
+            vector<CliCommand*> &commands= cli.getCommands();
+            for(size_t i= 0; i<commands.size(); i++)
+                sc.forwardDataset("# " + commands[i]->getSynopsis() + "\n");
+            sc.forwardDataset("\n");
+
+            if(sc.coreID)
+            {
+                usleep(1000000);
+                app.sendCoreCommand(sc, getName()+"\n", false);
+            }
+
+            return CMD_SUCCESS;
+        }
+
+};
+
 
 ServCli::ServCli(Graphserv &_app): app(_app)
 {
@@ -1637,6 +1776,7 @@ ServCli::ServCli(Graphserv &_app): app(_app)
     addCommand(new ccUseGraph());
     addCommand(new ccInfo());
     addCommand(new ccAuthorize());
+    addCommand(new ccHelp(*this));
 }
 
 
