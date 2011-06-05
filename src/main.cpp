@@ -512,6 +512,8 @@ struct SessionContext: public NonblockWriter
     {
         vector<string> request;
         string requestString;
+        unsigned commandsExecuted;
+        HttpClientState(): commandsExecuted(0) { }
     } http;
 
     struct Stats
@@ -1413,8 +1415,13 @@ static bool statuslineIndicatesDataset(const string& line)
 // forward statusline to http client, possibly mark client to be disconnected
 void HTTPSessionContext::forwardStatusline(const string& line)
 {
-    printf("HTTPSessionContext::forwardStatusline(%s)\n", line.c_str());
-    fflush(stdout);
+    // if we already ran at least one command, don't write the HTTP header again.
+    if(++http.commandsExecuted > 1)
+    {
+        SessionContext::forwardStatusline(line);
+        return;
+    }
+    printf("HTTPSessionContext::forwardStatusline '%s", line.c_str());
     vector<string> replyWords= Cli::splitString(line.c_str());
     if(replyWords.empty())
     {
@@ -1509,7 +1516,7 @@ class ccCreateGraph: public ServCmd_RTVoid
     public:
         string getName() { return "create-graph"; }
         string getSynopsis() { return getName() + " graphname"; }
-        string getHelpText() { return _("create a named graphcore instance. [ADMIN]"); }
+        string getHelpText() { return _("create a named graphcore instance."); }
         AccessLevel getAccessLevel() { return ACCESS_ADMIN; }
 
         CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
@@ -1560,7 +1567,7 @@ class ccAuthorize: public ServCmd_RTVoid
     public:
         string getName() { return "authorize"; }
         string getSynopsis() { return getName() + " authority credentials"; }
-        string getHelpText() { return _("authorize authorize with the given authority using the given credentials."); }
+        string getHelpText() { return _("authorize with the given authority using the given credentials."); }
         AccessLevel getAccessLevel() { return ACCESS_READ; }
 
         CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
@@ -1618,83 +1625,38 @@ class ccInfo: public ServCmd_RTOther
 
 };
 
-/*
-class ccHelp: public CliCommand_RTOther
+
+// the alternative help command. "help" would be for the server help, "corehelp" for the core.
+// superseded by ccHelp below.
+class ccHelpAlt: public ServCmd_RTOther
 {
-    private:
-        CoreCli *cli;
+    ServCli &cli;
 
     public:
-        ccHelp(CoreCli *_cli): cli(_cli)
+        string getName() { return "help"; }
+        string getSynopsis() { return getName(); }
+        string getHelpText() { return _("get help on commands"); }
+        AccessLevel getAccessLevel() { return ACCESS_READ; }
+
+        ccHelpAlt(ServCli &_cli): cli(_cli)
         { }
 
-        string getSynopsis()        { return getName() + _(" [COMMAND] / ") + getName() + _(" operators"); }
-        string getHelpText()        { return _("help: list commands\n# help COMMAND: get help on COMMAND\n# help operators: print help on operators"); }
-
-        CommandStatus execute(vector<string> words, CoreCli *cli, Digraph *graph, bool hasDataSet, FILE *inFile, FILE *outFile)
+        CommandStatus execute(vector<string> words, Graphserv &app, SessionContext &sc)
         {
-            if(words.size()>2 || hasDataSet)
-            {
-                syntaxError();
-                return CMD_FAILURE;
-            }
-            if(words.size()==2)
-            {
-                if(words[1]=="operators")
-                {
-                    cliSuccess("%s\n", outFile==stdout? ":": "");
-                    cout << lastStatusMessage << _("\
-# Operators can be used to combine the output of two commands into one\n\
-# data-set. They are used with infox syntax:\n\
-# \n\
-# <COMMAND> <OPERATOR> <COMMAND>\n\
-# \n\
-# This way, a composite command is formed. Note that if either operant\n\
-# fails, the composite command also fails.\n\
-# \n\
-# The following operators are currently specified:\n\
-# \n\
-# intersection (&&):\n\
-# The intersection operator takes two operants, both of wich must\n\
-# return a set of nodes. The result of the composite command is a set of\n\
-# nodes that contains only the nodes that are in both, the result of the\n\
-# left operand, and the result of the right. If and only if either\n\
-# operant returns NONE, the result is NONE. \n\
-# \n\
-# subtraction (&&!):\n\
-# The subtraction operator takes two operants, both of\n\
-# which must return a set of nodes. The result of the composite command is\n\
-# a set of nodes that contains only the nodes that are in the result of\n\
-# the left operand but not inthe result of the right operant. If and only\n\
-# if the left operant returns NONE, the result is NONE. If the right\n\
-# operant returns NONE, the result is the result of the left operant.\n\n");
-                    return CMD_SUCCESS;
-                }
-                CliCommand *cmd= cli->findCommand(words[1]);
-                if(!cmd)
-                {
-                    cliFailure(_("%s: no such command.\n"), words[1].c_str());
-                    cout << lastStatusMessage << endl;
-                    return CMD_FAILURE;
-                }
-                cliSuccess("%s\n", outFile==stdout? ":": "");
-                cout << lastStatusMessage << "# " << cmd->getSynopsis() << endl << "# " << cmd->getHelpText() << endl;
-            }
-            else
-            {
-                cliSuccess(_("available commands%s\n"), outFile==stdout? ":": "");
-                cout << lastStatusMessage;
-                vector<CliCommand*> &commands= cli->getCommands();
-                for(unsigned i= 0; i<commands.size(); i++)
-                    cout << "# " << commands[i]->getSynopsis() << endl;
-            }
-            cout << endl;
+            cliSuccess(_("available commands:\n"));
+            sc.forwardStatusline(lastStatusMessage);
+            vector<CliCommand*> &commands= cli.getCommands();
+            for(size_t i= 0; i<commands.size(); i++)
+                sc.forwardDataset("# " + commands[i]->getSynopsis() + "\n");
+            sc.forwardDataset(string("# ") + _("note: 'corehelp' prints help on core commands when connected to a core.\n"));
+            sc.forwardDataset("\n");
             return CMD_SUCCESS;
         }
+
 };
-*/
 
 
+// the help command for both server and core
 class ccHelp: public ServCmd_RTOther
 {
     ServCli &cli;
@@ -1710,16 +1672,57 @@ class ccHelp: public ServCmd_RTOther
 
         CommandStatus execute(vector<string> words, Graphserv &app, SessionContext &sc)
         {
+            if(words.size()>2)
+            {
+                syntaxError();
+                sc.forwardStatusline(lastStatusMessage);
+                return CMD_FAILURE;
+            }
 
-
-            cliSuccess(_("available commands:\n"));
-            sc.forwardStatusline(lastStatusMessage);
-            vector<CliCommand*> &commands= cli.getCommands();
-            for(size_t i= 0; i<commands.size(); i++)
-                sc.forwardDataset("# " + commands[i]->getSynopsis() + "\n");
-            sc.forwardDataset(string("# ") + _("note: 'corehelp' prints help on core commands when connected to a core.\n"));
-            sc.forwardDataset("\n");
-
+            CoreInstance *ci= app.findInstance(sc.coreID);
+            if(words.size()==1)
+            {
+                // show list of server commands
+                cliSuccess(_("available commands:\n"));
+                sc.forwardStatusline(lastStatusMessage);
+                vector<ServCmd*> &commands= (vector<ServCmd*> &)cli.getCommands();
+                for(size_t i= 0; i<commands.size(); i++)
+                    sc.forwardDataset("# " + commands[i]->getSynopsis() + "\n");
+                if(ci)
+                {
+                    // if connected, show list of core commands too.
+                    sc.forwardDataset(string("# ") + _("the following are the core commands:\n"));
+                    string line;
+                    for(vector<string>::iterator it= words.begin(); it!=words.end(); it++)
+                        line+= *it,
+                        line+= " ";
+                    line+= "\n";
+                    app.sendCoreCommand(sc, line, false, &words);
+                }
+                else sc.forwardDataset("\n");
+            }
+            else
+            {
+                CliCommand *cmd= cli.findCommand(words[1]);
+                if(cmd && cmd->getName()!="help")
+                {
+                    // show help on server command
+                    cliSuccess("%s:\n", words[1].c_str());
+                    sc.forwardStatusline(lastStatusMessage);
+                    sc.forwardDataset("# " + cmd->getSynopsis() + "\n" +
+                                      "# " + cmd->getHelpText() + "\n\n");
+                }
+                else
+                {
+                    // forward the command to the core
+                    string line;
+                    for(vector<string>::iterator it= words.begin(); it!=words.end(); it++)
+                        line+= *it,
+                        line+= " ";
+                    line+= "\n";
+                    app.sendCoreCommand(sc, line, false, &words);
+                }
+            }
 
             return CMD_SUCCESS;
         }
