@@ -23,6 +23,7 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <libgen.h>
 
 #include "clibase.h"
 
@@ -33,16 +34,16 @@
 // listen backlog: how large may the queue of incoming connections grow
 #define LISTEN_BACKLOG      100
 
-// default filenames for htpasswd and group file
+// default filenames for htpasswd file, group file, and core binary
 #define DEFAULT_HTPASSWD_FILENAME   "gspasswd.conf"
 #define DEFAULT_GROUP_FILENAME      "gsgroups.conf"
-
+#define DEFAULT_CORE_PATH           "./graphcore/graphcore"
 
 // the command status codes, including those used in the core.
 enum CommandStatus
 {
     CORECMDSTATUSCODES,
-    // server only status codes:
+    // server-only status codes:
     CMD_ACCESSDENIED,       // insufficient access level for command
     CMD_NOT_FOUND,          // "command not found" results in a different HTTP status code, therefore it needs its own code.
 };
@@ -317,10 +318,13 @@ struct CommandQEntry
 
 class CoreInstance: public NonblockWriter
 {
+    string corePath;
+
     public:
         string linebuf;     // data read from core gets buffered here.
 
-        CoreInstance(uint32_t _id): instanceID(_id), lastClientID(0), expectingReply(false), expectingDataset(false)
+        CoreInstance(uint32_t _id, const string& _corePath):
+            corePath(_corePath), instanceID(_id), lastClientID(0), expectingReply(false), expectingDataset(false)
         {
         }
 
@@ -330,13 +334,15 @@ class CoreInstance: public NonblockWriter
 //            exit(1); //xxxxx todo: do some sensible error handling (like marking the instance to be removed)
         }
 
-        bool startCore(const char *command= "./graphcore/graphcore")
+        bool startCore(const char *path= 0)
         {
             if(pipe(pipeToCore)==-1 || pipe(pipeFromCore)==-1)
             {
                 setLastError(string("pipe(): ") + strerror(errno));
                 return false;
             }
+
+            if(path==0) path= corePath.c_str();
 
             pid= fork();
             if(pid==-1)
@@ -356,7 +362,18 @@ class CoreInstance: public NonblockWriter
 
                 setlinebuf(stdout);
 
-                if(execl(command, command, NULL)==-1)
+                // dirname and basename may modify their arguments, so duplicate the strings first.
+                char dirnameBase[strlen(path)+1];
+                char basenameBase[strlen(path)+1];
+                strcpy(dirnameBase, path);
+                strcpy(basenameBase, path);
+
+                // change to the directory containing the binary
+                if(chdir(dirname(dirnameBase))<0)
+                    exit(103);  // couldn't chdir()
+
+                char *binName= basename(basenameBase);
+                if(execl(binName, binName, NULL)<0)
                     exit(102);  // couldn't exec()
             }
             else
@@ -391,8 +408,6 @@ class CoreInstance: public NonblockWriter
                         return false;
                     }
                     setWriteFd(pipeToCore[1]);
-//                    closeOnExec(pipeToCore[1]);
-//                    closeOnExec(pipeFromCore[0]);
                     return true;
                 }
                 else    // fgets() failed
@@ -406,7 +421,8 @@ class CoreInstance: public NonblockWriter
                         int estatus= WEXITSTATUS(status);
                         setLastError(string(_("child process exited: ")) +
                                      (estatus==101? "setup failed.":
-                                      estatus==102? string("couldn't exec() '") + command + "'.":
+                                      estatus==102? string("couldn't exec '") + path + "'.":
+                                      estatus==103? string("couldn't change directory"):
                                       format("unknown error code %d", estatus)) );
                     }
                     else
@@ -658,12 +674,17 @@ struct HTTPSessionContext: public SessionContext
 
 class Graphserv
 {
+    int tcpPort, httpPort;
+    string corePath;
+
     public:
-        Graphserv(): cli(*this)
+        Graphserv(int _tcpPort, int _httpPort, const string& htpwFilename, const string& groupFilename, const string& _corePath):
+            tcpPort(_tcpPort), httpPort(_httpPort), corePath(_corePath),
+            cli(*this)
         {
             initCoreCommandTable();
 
-            Authority *auth= new PasswordAuth(DEFAULT_HTPASSWD_FILENAME, DEFAULT_GROUP_FILENAME);
+            Authority *auth= new PasswordAuth(htpwFilename, groupFilename);
             authorities.insert(pair<string,Authority*> (auth->getName(), auth));
         }
 
@@ -683,8 +704,8 @@ class Graphserv
 
         bool run()
         {
-            int listenSocket= openListenSocket(DEFAULT_TCP_PORT);
-            int httpSocket= openListenSocket(DEFAULT_HTTP_PORT);
+            int listenSocket= openListenSocket(tcpPort);
+            int httpSocket= openListenSocket(httpPort);
             fd_set readfds, writefds;
 
             int maxfd;
@@ -886,7 +907,7 @@ class Graphserv
         // creates a new instance, without starting it.
         CoreInstance *createCoreInstance(string name= "")
         {
-            CoreInstance *inst= new CoreInstance(++coreIDCounter);
+            CoreInstance *inst= new CoreInstance(++coreIDCounter, corePath);
             inst->setName(name);
             coreInstances.insert( pair<uint32_t,CoreInstance*>(coreIDCounter, inst) );
             return inst;
@@ -1259,12 +1280,14 @@ bool PasswordAuth::readCredentialFiles()
     FILE *f= fopen(htpasswdFilename.c_str(), "r");
     if(!f) { perror(("couldn't open " + groupFilename).c_str()); return false; }
     map<string,userInfo> newUsers;
+    // for each line in htpassword file
     while(fgets(line, 1024, f))
     {
+        // read line in the form user:hash and stuff it into the cache
         vector<string> fields= splitLine(line);
         if(fields.size()!=2 || fields[0].empty() || fields[1].size()!=13)
         {
-            fprintf(stderr, "invalid line in htpasswd file\n");
+            fprintf(stderr, "PasswordAuth: invalid line in htpasswd file\n");
             return false;
         }
         userInfo ui= { fields[1], ACCESS_READ };
@@ -1273,12 +1296,14 @@ bool PasswordAuth::readCredentialFiles()
 
     f= fopen(groupFilename.c_str(), "r");
     if(!f) { perror(("couldn't open " + groupFilename).c_str()); return false; }
+    // for each line in group file
     while(fgets(line, 1024, f))
     {
+        // read line of the form accesslevel:::user1,user2,userX
         vector<string> fields= splitLine(line);
         if(fields.size()!=4 || fields[0].empty())
         {
-            fprintf(stderr, "invalid line in group file\n");
+            fprintf(stderr, "PasswordAuth: invalid line in group file\n");
             return false;
         }
         AccessLevel level;
@@ -1287,23 +1312,23 @@ bool PasswordAuth::readCredentialFiles()
         else if(fields[0]==gAccessLevelNames[ACCESS_ADMIN]) level= ACCESS_ADMIN;
         else
         {
-            fprintf(stderr, "invalid access level '%s' in group file\n", fields[0].c_str());
+            fprintf(stderr, "PasswordAuth: invalid access level '%s' in group file\n", fields[0].c_str());
             return false;
         }
 
         // go through the specified users and elevate their access levels
+        // so that each user gets the maximum specified:
+        // a user in both "admin" and "write" groups gets admin access.
         vector<string> usernames= splitLine(fields[3], ',');
         for(vector<string>::iterator it= usernames.begin(); it!=usernames.end(); it++)
         {
             map<string,userInfo>::iterator user= newUsers.find(*it);
             if(user!=newUsers.end() && level>user->second.accessLevel)
-            {
-//                printf("%s -> %s\n", user->first.c_str(), fields[0].c_str());
                 user->second.accessLevel= level;
-            }
         }
     }
 
+    // save cache only after we're successfully finished
     users.clear();
     users= newUsers;
     return true;
@@ -1322,6 +1347,8 @@ void PasswordAuth::refreshFileCache()
     { perror("couldn't stat groupfile"); return; }
     if(st.st_mtime>=lastCacheRefresh || needRefresh)
     {
+        // something has changed, or we didn't read the files yet.
+        // refresh the cache.
         lastCacheRefresh= curtime;
         readCredentialFiles();
     }
@@ -1329,15 +1356,18 @@ void PasswordAuth::refreshFileCache()
 
 bool PasswordAuth::authorize(class SessionContext& sc, const string& credentials)
 {
+    // load valid user/password combinations and group info into cache, if necessary.
     refreshFileCache();
 
     vector<string> cred= splitLine(credentials);
     if(cred.size()!=2 || cred[0].empty()||cred[1].empty())
-    { fprintf(stderr, "invalid credentials.\n"); return false; }
+    { fprintf(stderr, "PasswordAuth: invalid credentials.\n"); return false; }
 
     map<string,userInfo>::iterator it= users.find(cred[0]);
-    if(it==users.end()) return false;
+    if(it==users.end())
+    { fprintf(stderr, "PasswordAuth: invalid user.\n"); return false; }
 
+    // crypt() the password and compare to stored hash.
     char *crypted= crypt(cred[1].c_str(), it->second.hash.c_str());
     if(crypted != it->second.hash)
     {
@@ -1353,34 +1383,34 @@ bool PasswordAuth::authorize(class SessionContext& sc, const string& credentials
 }
 
 
-
+// handle a line of text arriving from a core.
 void CoreInstance::lineFromCore(string &line, class Graphserv &app)
 {
-//    printf("lineFromCore %s", line.c_str());
     SessionContext *sc= app.findClient(lastClientID);
     if(expectingReply)
     {
         expectingReply= false;
         if(line.find(":")!=string::npos)
-            expectingDataset= true;
+            expectingDataset= true;         // save flag to determine when a command is finished.
         if(sc)
             sc->forwardStatusline(line);    // virtual fn does http-specific stuff
     }
     else if(expectingDataset)
     {
         if(Cli::splitString(line.c_str()).size()==0)
-            expectingDataset= false;
+            expectingDataset= false;        // save flag to determine when a command is finished.
         if(sc)
-            sc->forwardDataset(line);  // virtual function which also does http-specific stuff, if any
+            sc->forwardDataset(line);       // virtual function does http-specific stuff, if any
     }
     else
     {
+        // a core sends data we didn't ask for. this shouldn't happen.
         if(app.findClient(lastClientID))
             fprintf(stderr, "CoreInstance '%s', ID %u: lineFromCore(): not expecting anything from this core\n", getName().c_str(), getID());
     }
 }
 
-// try writing out commands from queue to core process
+// write out as much commands from queue to core process as possible.
 void CoreInstance::flushCommandQ(class Graphserv &app)
 {
     while( commandQ.size() && (!expectingReply) && (!expectingDataset) && commandQ.front().flushable() )
@@ -1403,6 +1433,7 @@ void SessionContext::writeFailed(int _errno)
     app.forceClientDisconnect(this); // probably ripped out the cable or something. no use for shutdown.
 }
 
+// check whether a status line indicates that a data set will follow.
 static bool statuslineIndicatesDataset(const string& line)
 {
     size_t pos= line.find(':');
@@ -1421,10 +1452,10 @@ void HTTPSessionContext::forwardStatusline(const string& line)
         SessionContext::forwardStatusline(line);
         return;
     }
-    printf("HTTPSessionContext::forwardStatusline '%s", line.c_str());
     vector<string> replyWords= Cli::splitString(line.c_str());
     if(replyWords.empty())
     {
+        // this shouldn't happen.
         httpWriteErrorResponse(500, "Internal Server Error", "Received empty status line from core. Please report.");
         app.shutdownClient(this);
     }
@@ -1448,22 +1479,20 @@ void HTTPSessionContext::forwardStatusline(const string& line)
             case CMD_NONE:
                 httpWriteErrorResponse(404, "Not Found", line, headerStatusLine);
                 break;
-            case CMD_ACCESSDENIED:
-            case CMD_NOT_FOUND:
-                // XXX handle these where?
+            default:
+                httpWriteErrorResponse(500, "Invalid GraphCore Status Line", line, headerStatusLine);
                 break;
         }
 
+        // if there's nothing left to forward, mark client to be disconnected.
         if(!hasDataset)
             conversationFinished= true;
-
-        printf("conversationFinished: %s\n", conversationFinished? "true": "false");
-        fflush(stdout);
     }
 }
 
 
 
+// parse and execute a server command line.
 CommandStatus ServCli::execute(string command, class SessionContext &sc)
 {
     vector<string> words= splitString(command.c_str());
@@ -1471,21 +1500,17 @@ CommandStatus ServCli::execute(string command, class SessionContext &sc)
     ServCmd *cmd= (ServCmd*)findCommand(words[0]);
     if(!cmd)
     {
-//        sc.writef(FAIL_STR);
-//        sc.writef(_(" no such server command.\n"));
         sc.forwardStatusline(FAIL_STR + string(_(" no such server command.\n")));
         return CMD_FAILURE;
     }
     return execute(cmd, words, sc);
 }
 
+// execute a server command.
 CommandStatus ServCli::execute(ServCmd *cmd, vector<string> &words, SessionContext &sc)
 {
     if(cmd->getAccessLevel() > sc.accessLevel)
     {
-//        sc.writef(FAIL_STR);
-//        sc.writef(_(" insufficient access level (command needs %s, you have %s)\n"),
-//                  gAccessLevelNames[cmd->getAccessLevel()], gAccessLevelNames[sc.accessLevel]);
         sc.forwardStatusline(FAIL_STR + format(_(" insufficient access level (command needs %s, you have %s)\n"),
                              gAccessLevelNames[cmd->getAccessLevel()], gAccessLevelNames[sc.accessLevel]));
         return CMD_FAILURE;
@@ -1495,12 +1520,14 @@ CommandStatus ServCli::execute(ServCmd *cmd, vector<string> &words, SessionConte
     {
         case CliCommand::RT_OTHER:
             ret= ((ServCmd_RTOther*)cmd)->execute(words, app, sc);
+            // ServCmd_RTOther::execute will forward everything to the client.
             break;
         case CliCommand::RT_NONE:
             ret= ((ServCmd_RTVoid*)cmd)->execute(words, app, sc);
             sc.forwardStatusline(cmd->getStatusMessage().c_str());
             break;
         default:
+            fprintf(stderr, "ServCli::execute: invalid return type %d\n", cmd->getReturnType());
             ret= CMD_ERROR;
             break;
     }
@@ -1511,11 +1538,12 @@ CommandStatus ServCli::execute(ServCmd *cmd, vector<string> &words, SessionConte
 
 /////////////////////////////////////////// server commands ///////////////////////////////////////////
 
+
 class ccCreateGraph: public ServCmd_RTVoid
 {
     public:
         string getName() { return "create-graph"; }
-        string getSynopsis() { return getName() + " graphname"; }
+        string getSynopsis() { return getName() + " GRAPHNAME"; }
         string getHelpText() { return _("create a named graphcore instance."); }
         AccessLevel getAccessLevel() { return ACCESS_ADMIN; }
 
@@ -1526,6 +1554,7 @@ class ccCreateGraph: public ServCmd_RTVoid
                 syntaxError();
                 return CMD_FAILURE;
             }
+            // check whether named instance already exists, try spawning core instance, return.
             if(app.findNamedInstance(words[1])) { cliFailure(_("an instance with this name already exists.\n")); return CMD_FAILURE; }
             CoreInstance *core= app.createCoreInstance(words[1]);
             if(!core) { cliFailure(_("Graphserv::createCoreInstance() failed.\n")); return CMD_FAILURE; }
@@ -1541,8 +1570,8 @@ class ccUseGraph: public ServCmd_RTVoid
 {
     public:
         string getName() { return "use-graph"; }
-        string getSynopsis() { return getName() + " graphname"; }
-        string getHelpText() { return _("use a named graphcore instance."); }
+        string getSynopsis() { return getName() + " GRAPHNAME"; }
+        string getHelpText() { return _("connect to a named graphcore instance."); }
         AccessLevel getAccessLevel() { return ACCESS_READ; }
 
         CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
@@ -1552,6 +1581,7 @@ class ccUseGraph: public ServCmd_RTVoid
                 syntaxError();
                 return CMD_FAILURE;
             }
+            // disconnecting from a core, or switching instances, might be implemented later.
             if(sc.coreID) { cliFailure(_("already connected. switching instances is not currently supported.\n")); return CMD_FAILURE; }
             CoreInstance *core= app.findNamedInstance(words[1]);
             if(!core) { cliFailure(_("no such instance.\n")); return CMD_FAILURE; }
@@ -1566,7 +1596,7 @@ class ccAuthorize: public ServCmd_RTVoid
 {
     public:
         string getName() { return "authorize"; }
-        string getSynopsis() { return getName() + " authority credentials"; }
+        string getSynopsis() { return getName() + " AUTHORITY CREDENTIALS"; }
         string getHelpText() { return _("authorize with the given authority using the given credentials."); }
         AccessLevel getAccessLevel() { return ACCESS_READ; }
 
@@ -1577,6 +1607,8 @@ class ccAuthorize: public ServCmd_RTVoid
                 syntaxError();
                 return CMD_FAILURE;
             }
+            // find the authority to use.
+            // currently there's only one (password).
             Authority *auth= app.findAuthority(words[1]);
             if(!auth)
             {
@@ -1594,6 +1626,9 @@ class ccAuthorize: public ServCmd_RTVoid
 
 };
 
+
+#ifdef DEBUG_COMMANDS
+// the "i" command is really just for debugging.
 class ccInfo: public ServCmd_RTOther
 {
     public:
@@ -1618,16 +1653,17 @@ class ccInfo: public ServCmd_RTOther
                 sc.writef("Core %d:\n", ci->getID());
                 sc.writef("  queue size: %u\n", ci->commandQ.size());
                 sc.writef("  bytes in write buffer: %u\n", ci->getWritebufferSize());
+                sc.writef("\n");
             }
 
             return CMD_SUCCESS;
         }
 
 };
-
+#endif
 
 // the alternative help command. "help" would be for the server help, "corehelp" for the core.
-// superseded by ccHelp below.
+// superseded by ccHelp below, which seems to work well.
 class ccHelpAlt: public ServCmd_RTOther
 {
     ServCli &cli;
@@ -1734,36 +1770,70 @@ ServCli::ServCli(Graphserv &_app): app(_app)
 {
     addCommand(new ccCreateGraph());
     addCommand(new ccUseGraph());
+#ifdef DEBUG_COMMANDS
     addCommand(new ccInfo());
+#endif
     addCommand(new ccAuthorize());
     addCommand(new ccHelp(*this));
 }
 
 
 
-void sigchld_handler(int signum)
-{
-//    puts("sigchld received");
-}
 
-
-int main()
+int main(int argc, char *argv[])
 {
+    // default values can be overridden on the command line.
+    int tcpPort= DEFAULT_TCP_PORT;
+    int httpPort= DEFAULT_HTTP_PORT;
+    string htpwFilename= DEFAULT_HTPASSWD_FILENAME;
+    string groupFilename= DEFAULT_GROUP_FILENAME;
+    string corePath= DEFAULT_CORE_PATH;
+
+    // parse the command line.
+    char opt;
+    int ret= 0;
+    while( (opt= getopt(argc, argv, "ht:H:p:g:c:"))!=-1 )
+        switch(opt)
+        {
+            case '?':
+                ret= 1; // exit with error
+            case 'h':
+                printf("use: %s [options]\n", argv[0]);
+                printf("options:\n"
+                       "    -h              print this text\n"
+                       "    -t PORT         listen on PORT for tcp connections [" stringify(DEFAULT_TCP_PORT) "]\n"
+                       "    -H PORT         listen on PORT for http connections [" stringify(DEFAULT_HTTP_PORT) "]\n"
+                       "    -p FILENAME     set htpassword file name [" DEFAULT_HTPASSWD_FILENAME "]\n"
+                       "    -g FILENAME     set group file name [" DEFAULT_GROUP_FILENAME "]\n"
+                       "    -c FILENAME     set path of GraphCore binary [" DEFAULT_CORE_PATH "]\n"
+                       "\n");
+                exit(ret);
+            case 't':
+                tcpPort= atoi(optarg);
+                break;
+            case 'H':
+                httpPort= atoi(optarg);
+                break;
+            case 'p':
+                htpwFilename= optarg;
+                break;
+            case 'g':
+                groupFilename= optarg;
+                break;
+            case 'c':
+                corePath= optarg;
+                break;
+        }
+
     bindtextdomain("graphserv", "./messages");
     textdomain("graphserv");
 
+    // we don't want broken pipe signals to be delivered to us.
+    // exiting core instances are handled in the select loop.
     signal(SIGPIPE, SIG_IGN);
 
-//    struct sigaction sa;
-//    memset(&sa, 0, sizeof(sa));
-//    sa.sa_handler= sigchld_handler;
-//    sigaction(SIGCHLD, &sa, 0);
-
-//    CoreInstance test(0);
-//    if(!test.startCore())
-//        cout << FAIL_STR << " " << test.getLastError() << endl;
-
-    Graphserv s;
+    // instantiate app and kick off main loop.
+    Graphserv s(tcpPort, httpPort, htpwFilename, groupFilename, corePath);
     s.run();
 
     return 0;
