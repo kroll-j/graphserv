@@ -302,7 +302,7 @@ class NonblockWriter
 struct CommandQEntry
 {
 	string command;         // command
-	deque<string> dataSet;  // data set, if any
+	deque<string> dataset;  // data set, if any
 	uint32_t clientID;      // who runs this command
 	bool acceptsData;       // command accepts an input data set (colon)?
 	bool dataFinished;      // data set was terminated with empty line?
@@ -318,20 +318,18 @@ struct CommandQEntry
 
 class CoreInstance: public NonblockWriter
 {
-    string corePath;
-
     public:
         string linebuf;     // data read from core gets buffered here.
 
         CoreInstance(uint32_t _id, const string& _corePath):
-            corePath(_corePath), instanceID(_id), lastClientID(0), expectingReply(false), expectingDataset(false)
+            instanceID(_id), lastClientID(0), expectingReply(false), expectingDataset(false), corePath(_corePath)
         {
         }
 
         void writeFailed(int _errno)
         {
             perror("write failed");
-//            exit(1); //xxxxx todo: do some sensible error handling (like marking the instance to be removed)
+            // read will return 0, core will be removed.
         }
 
         bool startCore(const char *path= 0)
@@ -455,12 +453,12 @@ class CoreInstance: public NonblockWriter
 
         void removeClientCommands(uint32_t clientID)
         {
-            // xxx as it is, this is inefficient, and currently not used. remove?
+            // this is inefficient because of the nature of deque<>, and currently not used.
+            // commands from disconnected clients are removed on flush.
             for(commandQ_t::iterator it= commandQ.begin(); it!=commandQ.end(); it++)
             {
                 if(it->clientID==clientID)
                 {
-//                    printf("removing command: '%s", it->command.c_str());
                     commandQ.erase(it);
                     it= commandQ.begin();
                 }
@@ -510,6 +508,8 @@ class CoreInstance: public NonblockWriter
         bool expectingReply;    // currently expecting a status reply from core (ok/failure/error)
         bool expectingDataset;  //          ''         a data set from core
 
+        string corePath;
+
         friend class ccInfo;
 };
 
@@ -523,6 +523,10 @@ struct SessionContext: public NonblockWriter
     string linebuf;
     class Graphserv &app;
     double chokeTime;
+    // this is set when a client sends an invalid command with a data set.
+    // the data set must be read and discarded.
+    CommandStatus invalidDatasetStatus;
+    string invalidDatasetMsg;   // the status line to send after invalid data set has been read
 
     struct HttpClientState
     {
@@ -557,7 +561,7 @@ struct SessionContext: public NonblockWriter
 
 
     SessionContext(class Graphserv &_app, uint32_t cID, int sock, ConnectionType connType= CONN_TCP):
-        clientID(cID), accessLevel(ACCESS_ADMIN/*XXX change after pw auth*/), connectionType(connType), coreID(0), sockfd(sock), app(_app), chokeTime(0)
+        clientID(cID), accessLevel(ACCESS_READ), connectionType(connType), coreID(0), sockfd(sock), app(_app), chokeTime(0), invalidDatasetStatus(CMD_SUCCESS)
     {
         setWriteFd(sockfd);
     }
@@ -569,21 +573,6 @@ struct SessionContext: public NonblockWriter
     }
 
     void writeFailed(int _errno);
-
-// xxx remove?
-//    string makeStatusLine(CommandStatus status, const string& message)
-//    {
-//        string ret= getStatusString(status) + "  " + message;
-//        while(ret[ret.size()-1]=='\n') ret.resize(ret.size()-1);   // make sure we don't break the protocol by adding extraneous newlines
-//        return ret;
-//    }
-//
-//    // write out the status line. overridden by superclasses (such as the HTTP session context)
-//    virtual void writeStatusline(CommandStatus status, const string& message)
-//    {
-//        // the default for TCP connections: just write out the line.
-//        write(makeStatusLine(status, message + '\n'));
-//    }
 
     // forward a status line from a core to the client.
     virtual void forwardStatusline(const string& line)
@@ -645,12 +634,6 @@ struct HTTPSessionContext: public SessionContext
         httpWriteResponseHeader(code, title, "text/plain", optionalField);
         httpWriteErrorBody(title, description);
     }
-
-//    void writeStatusline(CommandStatus status, const string& message)
-//    {
-//        // xxx remove?
-//    }
-//
 
     // forward statusline to http client, possibly mark client to be disconnected
     void forwardStatusline(const string& line);
@@ -737,7 +720,8 @@ class Graphserv
                         sc->stats.normalize(time);
                         fprintf(stderr, "client %u: bytesSent %.2f, linesQueued %.2f, coreCommandsSent %.2f, servCommandsSent %.2f\n",
                                 sc->clientID, sc->stats.bytesSent, sc->stats.linesQueued, sc->stats.coreCommandsSent, sc->stats.servCommandsSent);
-//                        if(sc->stats.bytesSent>1000) sc->chokeTime= time+0.5;
+                        // possibly do something like this later to prevent flooding.
+                        /* if(sc->stats.bytesSent>1000) sc->chokeTime= time+0.5; */
                         sc->stats.reset();
                         sc->stats.lastTime= time;
                     }
@@ -765,7 +749,16 @@ class Graphserv
                     switch(errno)
                     {
                         case EBADF:
-                            // xxx one of the file descriptors was unexpectedly closed. find out which.
+                            // a file descriptor is bad, find out which and remove the client or core.
+                            for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
+                                if( !i->second->writeBufferEmpty() && fcntl(i->second->sockfd, F_GETFL)==-1 )
+                                    fprintf(stderr, "bad fd, removing client %d.\n", i->second->clientID),
+                                    forceClientDisconnect(i->second);
+                            for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++ )
+                                if( fcntl(i->second->getReadFd(), F_GETFL)==-1 ||
+                                    (!i->second->writeBufferEmpty() && fcntl(i->second->getWriteFd(), F_GETFL)==-1) )
+                                    fprintf(stderr, "bad fd, removing core %d.\n", i->second->getID()),
+                                    removeCoreInstance(i->second);
                             continue;
 
                         default:
@@ -957,7 +950,10 @@ class Graphserv
             CoreCommandInfo *cci= findCoreCommand(words[0]);
             if(cci)
             {
-                if(sc.accessLevel>=cci->accessLevel)
+                AccessLevel al= cci->accessLevel;
+                if( line.find(">")!=string::npos || line.find("<")!=string::npos )
+                    al= ACCESS_ADMIN;   // i/o redirection requires admin level.
+                if(sc.accessLevel>=al)
                 {
                     // write command to instance
                     CoreInstance *ci= findInstance(sc.coreID);
@@ -967,7 +963,7 @@ class Graphserv
                 else
                 {
                     // forward line as if it came from core so that the http code can do its stuff
-                    sc.forwardStatusline(string(FAIL_STR " ") + format(_(" insufficient access level (command needs %s access, you have %s access)\n"),
+                    sc.forwardStatusline(string(FAIL_STR " ") + format(_(" insufficient access level (command needs %s, you have %s)\n"),
                                          gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]));
                 }
             }
@@ -1099,9 +1095,6 @@ class Graphserv
             map<uint32_t,SessionContext*>::iterator it= sessionContexts.find(sessionID);
             if(it!=sessionContexts.end())
             {
-//                // remove all commands queued for this client
-//                for(map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++)
-//                    i->second->removeClientCommands(sessionID);
                 delete(it->second);
                 sessionContexts.erase(it);
                 return true;
@@ -1115,9 +1108,21 @@ class Graphserv
             sc.stats.linesSent++;
             sc.stats.bytesSent+= line.length();
 
-            // xxx handle case where client sends unknown/invalid command with terminating colon (slurp data set anyway)
-
-            // xxx todo: handle i/o redirection (ADMIN access, server?)
+            // handle case where client sends unknown/invalid command with terminating colon according to spec.
+            // consume data set, then send error message.
+            if(sc.invalidDatasetStatus)
+            {
+                if(Cli::splitString(line.c_str()).size()==0)
+                {
+                    if(sc.invalidDatasetStatus==CMD_NOT_FOUND)
+                        sc.commandNotFound(sc.invalidDatasetMsg);
+                    else
+                        sc.forwardStatusline(sc.invalidDatasetMsg);
+                    // reset status code so following commands can succeed
+                    sc.invalidDatasetStatus= CMD_SUCCESS;
+                }
+                return;
+            }
 
             // if(sc connected && running command for this client accepts more data)
             //      append data to command queue entry
@@ -1132,7 +1137,7 @@ class Graphserv
                         sc.stats.dataRecordsSent++;
                         sc.stats.linesQueued++;
 
-                        cqe->dataSet.push_back(line);
+                        cqe->dataset.push_back(line);
                         if(Cli::splitString(line.c_str()).size()==0)
                             cqe->dataFinished= true;
                         return;
@@ -1163,21 +1168,29 @@ class Graphserv
             {
                 sc.stats.servCommandsSent++;
                 if(hasDataSet)  // currently, no server command takes a data set.
-//                    sc.writef(_("%s %s accepts no data set.\n"), FAIL_STR, words[0].c_str());
-                    sc.forwardStatusline(format(_("%s %s accepts no data set.\n"), FAIL_STR, words[0].c_str()));
+//                    sc.forwardStatusline(format(_("%s %s accepts no data set.\n"), FAIL_STR, words[0].c_str()));
+                    sc.invalidDatasetStatus= CMD_FAILURE,
+                    sc.invalidDatasetMsg= format(_("%s %s accepts no data set.\n"), FAIL_STR, words[0].c_str());
+                else if( line.find(">")!=string::npos || line.find("<")!=string::npos )
+                    sc.forwardStatusline(string(FAIL_STR) + _(" input/output of server commands can't be redirected.\n"));
                 else cli.execute(cmd, words, sc);
             }
             else if(sc.coreID)
                 sendCoreCommand(sc, line, hasDataSet, &words);
             else
-                sc.commandNotFound(format(_("no such server command '%s'."), words[0].c_str()));
+            {
+                if(hasDataSet)
+                    sc.invalidDatasetStatus= CMD_NOT_FOUND,
+                    sc.invalidDatasetMsg= format(_("no such server command '%s'."), words[0].c_str());
+                else
+                    sc.commandNotFound(format(_("no such server command '%s'."), words[0].c_str()));
+            }
         }
 
 
         void lineFromHTTPClient(string line, HTTPSessionContext &sc, double timestamp)
         {
-            // xxx handle case where someone tries to GET something like "add-arcs:"
-            sc.http.request.push_back(line);    // xxx not needed if we don't parse the header, remove?
+            sc.http.request.push_back(line);
             if(line=="\n")  // end of request. CR is removed by buffering code
             {
                 sc.http.requestString= sc.http.request[0];
@@ -1219,6 +1232,9 @@ class Graphserv
                             transformedURI+= (char)hexChar;
                             i+= 2;
                             break;
+                        case ':':
+                            sc.forwardStatusline(string(FAIL_STR) + _(" data sets not allowed in HTTP GET requests.\n"));
+                            return;
                         case '/':
                             if(i==0) break;
                             // else fall through
@@ -1228,26 +1244,27 @@ class Graphserv
                     }
                 }
 
+                // split the string: /corename/command -> corename, command
                 vector<string> uriwords= Cli::splitString(transformedURI.c_str(), "/");
 
-                if(uriwords.size()!=2)
+                if(uriwords.size()==2)
                 {
-                    sc.forwardStatusline(string(FAIL_STR) + " " + _("Expecting a request string like: 'GET /corename/command+to+run HTTP/1.0' (see docs)."));
-                    // client will be disconnected after response has been flushed.
-                    return;
+                    // immediately connect the client to the core named in the request string,
+                    // then execute the requested command.
+                    CoreInstance *ci= findNamedInstance(uriwords[0]);
+                    if(!ci)
+                    {
+                        sc.forwardStatusline(string(FAIL_STR) + " " + _("No such instance."));
+                        return;
+                    }
+                    sc.coreID= ci->getID();
+                    lineFromClient(uriwords[1] + '\n', sc, timestamp);
                 }
-
-                // immediately connect the client to the core named in the request string.
-                CoreInstance *ci= findNamedInstance(uriwords[0]);
-                if(!ci)
+                else
                 {
-                    sc.forwardStatusline(string(FAIL_STR) + " " + _("No such instance."));
-                    return;
+                    // try to execute the request as one command.
+                    lineFromClient(transformedURI, sc, timestamp);
                 }
-
-                sc.coreID= ci->getID();
-
-                lineFromClient(uriwords[1] + '\n', sc, timestamp);
             }
         }
 
@@ -1404,7 +1421,7 @@ void CoreInstance::lineFromCore(string &line, class Graphserv &app)
     }
     else
     {
-        // a core sends data we didn't ask for. this shouldn't happen.
+        // a core sent data we didn't ask for. this shouldn't happen.
         if(app.findClient(lastClientID))
             fprintf(stderr, "CoreInstance '%s', ID %u: lineFromCore(): not expecting anything from this core\n", getName().c_str(), getID());
     }
@@ -1417,7 +1434,7 @@ void CoreInstance::flushCommandQ(class Graphserv &app)
     {
         CommandQEntry &c= commandQ.front();
         write(c.command);
-        for(deque<string>::iterator it= c.dataSet.begin(); it!=c.dataSet.end(); it++)
+        for(deque<string>::iterator it= c.dataset.begin(); it!=c.dataset.end(); it++)
             write(*it);
         lastClientID= c.clientID;
         expectingReply= true;
@@ -1430,7 +1447,8 @@ void CoreInstance::flushCommandQ(class Graphserv &app)
 // error handler called because of broken connection or similar. tell app to disconnect this client.
 void SessionContext::writeFailed(int _errno)
 {
-    app.forceClientDisconnect(this); // probably ripped out the cable or something. no use for shutdown.
+    fprintf(stderr, "client %d: write failed, disconnecting.\n", clientID);
+    app.forceClientDisconnect(this);
 }
 
 // check whether a status line indicates that a data set will follow.
