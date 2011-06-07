@@ -536,6 +536,7 @@ struct SessionContext: public NonblockWriter
         HttpClientState(): commandsExecuted(0) { }
     } http;
 
+    // some statistics about this connection. currently mostly used for debugging.
     struct Stats
     {
         double lastTime;
@@ -657,9 +658,6 @@ struct HTTPSessionContext: public SessionContext
 
 class Graphserv
 {
-    int tcpPort, httpPort;
-    string corePath;
-
     public:
         Graphserv(int _tcpPort, int _httpPort, const string& htpwFilename, const string& groupFilename, const string& _corePath):
             tcpPort(_tcpPort), httpPort(_httpPort), corePath(_corePath),
@@ -971,8 +969,15 @@ class Graphserv
                 sc.commandNotFound(format(_("no such core command '%s'."), words[0].c_str()));
         }
 
+        map<uint32_t,CoreInstance*>& getCoreInstances()
+        {
+            return coreInstances;
+        }
 
     private:
+        int tcpPort, httpPort;
+        string corePath;
+
         struct CoreCommandInfo
         {
             AccessLevel accessLevel;
@@ -1007,8 +1012,6 @@ class Graphserv
                 close(listenSocket);
                 return -1;
             }
-
-//            if(!setNonblocking(listenSocket)) { close(listenSocket); return -1; }
 
             struct sockaddr_in sa;
             memset(&sa, 0, sizeof(sa));
@@ -1065,8 +1068,6 @@ class Graphserv
             {
                 perror("accept()");
                 return 0;
-//                if(errno!=EWOULDBLOCK && errno!=EAGAIN)
-//                    return false;
             }
             else
             {
@@ -1610,6 +1611,111 @@ class ccUseGraph: public ServCmd_RTVoid
 
 };
 
+class ccDropGraph: public ServCmd_RTVoid
+{
+    public:
+        string getName() { return "drop-graph"; }
+        string getSynopsis() { return getName() + " GRAPHNAME"; }
+        string getHelpText() { return _("drop a named graphcore instance immediately (kill the process)."); }
+        AccessLevel getAccessLevel() { return ACCESS_ADMIN; }
+
+        CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
+        {
+            if(words.size()!=2)
+            {
+                syntaxError();
+                return CMD_FAILURE;
+            }
+            CoreInstance *core= app.findNamedInstance(words[1]);
+            if(!core) { cliFailure(_("no such instance.\n")); return CMD_FAILURE; }
+            kill(core->getPid(), SIGKILL);
+            app.removeCoreInstance(core);
+            return CMD_SUCCESS;
+        }
+
+};
+
+class ccListGraphs: public ServCmd_RTOther
+{
+    public:
+        string getName() { return "list-graphs"; }
+        string getSynopsis() { return getName(); }
+        string getHelpText() { return _("list currently running graph instances."); }
+        AccessLevel getAccessLevel() { return ACCESS_READ; }
+
+        CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
+        {
+            if(words.size()!=1)
+            {
+                syntaxError();
+                sc.forwardStatusline(lastStatusMessage);
+                return CMD_FAILURE;
+            }
+            cliSuccess(_("running graphs:\n"));
+            sc.forwardStatusline(lastStatusMessage);
+            map<uint32_t,CoreInstance*>& cores= app.getCoreInstances();
+            for(map<uint32_t,CoreInstance*>::iterator it= cores.begin(); it!=cores.end(); it++)
+                sc.forwardDataset(it->second->getName() + "\n");
+            sc.forwardDataset("\n");
+            return CMD_SUCCESS;
+        }
+
+};
+
+class ccSessionInfo: public ServCmd_RTOther
+{
+    public:
+        string getName() { return "session-info"; }
+        string getSynopsis() { return getName(); }
+        string getHelpText() { return _("returns information on your current session."); }
+        AccessLevel getAccessLevel() { return ACCESS_READ; }
+
+        CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
+        {
+            if(words.size()!=1)
+            {
+                syntaxError();
+                sc.forwardStatusline(lastStatusMessage);
+                return CMD_FAILURE;
+            }
+            cliSuccess(_("session info:\n"));
+            sc.forwardStatusline(lastStatusMessage);
+            CoreInstance *ci= app.findInstance(sc.coreID);
+            // prints minimal info. might print some session statistics (avg lines queued, etc).
+            sc.forwardDataset(format("ConnectedGraph,%s\n", ci? ci->getName().c_str(): "None").c_str());
+            sc.forwardDataset(format("AccessLevel,%s\n", gAccessLevelNames[sc.accessLevel]).c_str());
+            sc.forwardDataset("\n");
+            return CMD_SUCCESS;
+        }
+
+};
+
+class ccServerStats: public ServCmd_RTOther
+{
+    public:
+        string getName() { return "server-stats"; }
+        string getSynopsis() { return getName(); }
+        string getHelpText() { return _("returns some information on the server."); }
+        AccessLevel getAccessLevel() { return ACCESS_READ; }
+
+        CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
+        {
+            if(words.size()!=1)
+            {
+                syntaxError();
+                sc.forwardStatusline(lastStatusMessage);
+                return CMD_FAILURE;
+            }
+            cliSuccess(_("server info:\n"));
+            sc.forwardStatusline(lastStatusMessage);
+            // this currently just outputs the minimal info: number of cores. should return more useful info.
+            sc.forwardDataset(format("NCores,%d", app.getCoreInstances().size()));
+            sc.forwardDataset("\n");
+            return CMD_SUCCESS;
+        }
+
+};
+
 class ccAuthorize: public ServCmd_RTVoid
 {
     public:
@@ -1660,6 +1766,7 @@ class ccInfo: public ServCmd_RTOther
             if(words.size()!=1)
             {
                 syntaxError();
+                sc.forwardStatusline(lastStatusMessage);
                 return CMD_FAILURE;
             }
 
@@ -1793,6 +1900,10 @@ ServCli::ServCli(Graphserv &_app): app(_app)
 #endif
     addCommand(new ccAuthorize());
     addCommand(new ccHelp(*this));
+    addCommand(new ccDropGraph());
+    addCommand(new ccListGraphs());
+    addCommand(new ccSessionInfo());
+    addCommand(new ccServerStats());
 }
 
 
