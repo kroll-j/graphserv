@@ -83,6 +83,23 @@ Example htpasswd and group .conf files are included in the repository. All users
 TCP Connections
 ---------------
 
+A user can connect to GraphServ via TCP. All core and server commands can be executed using a TCP connection. Commands and replies are sent in a line-based fashion. Several users can simultaneously execute commands on the same GraphServ instance, or on the same core. ::
+
+	$ nc localhost 6666
+	help
+	OK. available commands:
+	# create-graph GRAPHNAME
+	# use-graph GRAPHNAME
+	# authorize AUTHORITY CREDENTIALS
+	# help
+	# drop-graph GRAPHNAME
+	# list-graphs
+	# session-info
+	# server-stats
+
+
+
+
 HTTP Connections
 ----------------
 
