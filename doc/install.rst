@@ -4,27 +4,27 @@ This file documents getting, building and running GraphServ.
 
 
 Getting the Code
-================
+----------------
 
 Prerequisites:
 	- `git <http://git-scm.com/>`_
 
 To clone a read-only copy of the GraphServ repository, use the following command: ::
 
-$ git clone --recursive git://github.com/jkroll20/graphserv.git
+	$ git clone --recursive git://github.com/jkroll20/graphserv.git
 
 The `--recursive` switch will automatically clone the required GraphCore repository as a submodule.
 
 Optionally, you can check out the commit which this documentation refers to: ::
 
-$ cd graphserv
-$ git checkout <todo:tested-commit-or-tag>
-$ git submodule update
+	$ cd graphserv
+	$ git checkout <todo:tested-commit-or-tag>
+	$ git submodule update
 
 
 
 Building
-========
+--------
 
 Prerequisites:
 	- GNU Toolchain (make, g++, libc)
@@ -40,7 +40,7 @@ The code should build and run on 32-Bit Linux and 64-Bit Solaris systems. Care w
 
 
 Running GraphServ
-=================
+-----------------
 
 By default, GraphServ will look for the GraphCore binary in the subdirectory `graphcore`. Default values for TCP ports and authentication files are also set at compile time. You may want to override these defaults using one of the command line options. In the list below, default values are given in square brackets. ::
 
