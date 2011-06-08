@@ -39,7 +39,7 @@ The build process does not involve the use of any autofrobnication scripts. To c
 
 This will build debug and release binaries of GraphServ and GraphCore. 
 
-The code should build and run on 32-Bit Linux and 64-Bit Solaris systems. Care was taken to ensure portability to other Unix-ish systems. If the code does not build or run on your platform, please drop me a line.
+The code should build and run on 32-Bit Linux and 64-Bit Solaris systems. Care was taken to ensure compatibility to other Unix-ish systems. If the code does not build or run on your platform, please drop me a line.
 
 
 Running GraphServ
