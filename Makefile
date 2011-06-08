@@ -12,10 +12,10 @@ graphcore/graphcore:	graphcore/src/*
 graphcore/graphcore.dbg:	graphcore/src/*
 		make -C graphcore Debug
 
-graphserv:	src/main.cpp graphcore/src/*.h graphcore/graphcore
+graphserv:	src/main.cpp src/*.h graphcore/src/*.h graphcore/graphcore
 		g++ $(CCFLAGS) -O3 -fexpensive-optimizations src/main.cpp $(LDFLAGS) -ographserv
 
-graphserv.dbg:	src/main.cpp graphcore/src/*.h graphcore/graphcore
+graphserv.dbg:	src/main.cpp src/*.h graphcore/src/*.h graphcore/graphcore
 		g++ $(CCFLAGS) -DDEBUG_COMMANDS -ggdb src/main.cpp $(LDFLAGS) -ographserv.dbg
 
 # updatelang: update the language files

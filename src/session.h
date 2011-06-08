@@ -120,7 +120,8 @@ struct HTTPSessionContext: public SessionContext
     void httpWriteErrorBody(const string& title, const string& description)
     {
 //        writef("<http><head><title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>\n", title.c_str(), title.c_str(), description.c_str());
-        write(title + "\n" + description + "\n");
+//        write(title + "\n" + description + "\n");
+        write(description + "\n");
     }
 
     void httpWriteErrorResponse(int code, const string &title, const string &description, const string &optionalField= "")

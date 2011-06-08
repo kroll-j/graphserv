@@ -146,7 +146,7 @@ The HTTP server translates Graph Processor command status codes to HTTP Status-C
 
 Additionally, the untranslated status line is included in the *X-GraphProcessor:* header field of the HTTP response. 
 
-Result data records or other command output is sent in the message-body of the response.
+The message-body of the response consists of the status line followed by any result data records or other command output.
 
 
 | 
