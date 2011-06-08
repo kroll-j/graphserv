@@ -41,10 +41,19 @@
 		<ExtraCommands>
 			<Add before="# cp /home/johannes/code/graphcore/src/* /home/johannes/code/graphserv/graphcore/src/; true" />
 		</ExtraCommands>
+		<Unit filename="../src/auth.h" />
+		<Unit filename="../src/const.h" />
+		<Unit filename="../src/const_h" />
+		<Unit filename="../src/coreinstance.h" />
 		<Unit filename="../src/main.cpp" />
+		<Unit filename="../src/servapp.h" />
+		<Unit filename="../src/servcli.h" />
+		<Unit filename="../src/session.h" />
+		<Unit filename="../src/utils.h" />
 		<Extensions>
 			<code_completion />
 			<debugger />
+			<envvars />
 		</Extensions>
 	</Project>
 </CodeBlocks_project_file>
