@@ -9,7 +9,9 @@ This file documents GraphServ usage.
 GraphServ Commands
 ------------------
 
-GraphCore accepts commands and data in a line-based command language. Its command interface follows the same basic syntax and principles as is used for GraphCore commands (see `GraphCore spec <https://github.com/jkroll20/graphcore/blob/master/spec.rst>`_).
+Users can connect to GraphServ via plaintext-TCP or HTTP. GraphServ multiplexes data to and from GraphServ instances and users. Several users can simultaneously execute commands on the same GraphServ instance, or on the same core. 
+
+GraphServ accepts commands and data in a line-based command language. Its command interface follows the same basic syntax and principles as is used for GraphCore commands (see `GraphCore spec <https://github.com/jkroll20/graphcore/blob/master/spec.rst>`_).
 
 The following is the list of GraphServ commands. Words in square brackets denote access level.
 
@@ -26,8 +28,8 @@ use-graph [read] ::
 authorize [read] ::
 
 	authorize AUTHORITY CREDENTIALS
-	authorize with the names authority using the given credentials.
-	one authority named 'password' is implemented, which takes credentials of the form user:password.
+	authorize with the named authority using the given credentials.
+	an authority named 'password' is implemented, which takes credentials of the form user:password.
 
 help [read] ::
 
@@ -69,13 +71,13 @@ Password Authority
 
 The *password* authority implements access control using a htpassword-file and corresponding unix-style group file. A user authenticates by running the command *authorize password username:password*.
 
-The htpassword file contains entries of the form *user:password-hash* and can be created and modified with the `htpasswd <http://httpd.apache.org/docs/2.0/programs/htpasswd.html>`_ tool. GraphServ supports passwords hashed with crypt() (htpasswd -d).
+The **htpassword file** contains entries of the form *user:password-hash* and can be created and modified with the `htpasswd <http://httpd.apache.org/docs/2.0/programs/htpasswd.html>`_ tool. GraphServ supports passwords hashed with crypt() (htpasswd -d).
 
-The group file contains entries of the form *access_level:password:GID:user_list*. The password and GID fields are ignored, and can be blank. *access_level* must be one of read, write, or admin. *user_list* is a comma-separated list of usernames.
+The **group file** contains entries of the form *access_level:password:GID:user_list*. The password and GID fields are ignored, and can be blank. *access_level* must be one of read, write, or admin. *user_list* is a comma-separated list of usernames.
 
 The password authority reads the contents of these files on demand. If one of the files is changed while the server is running, it will be reloaded once a user runs *authorize*. 
 
-If a user name is included in several access levels, it will be assigned the highest level.
+If a user name appears in several access levels, the highest level will be used.
 
 Example htpasswd and group .conf files are included in the repository. All users in the example files use the password 'test'.
 
