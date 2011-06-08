@@ -53,7 +53,7 @@ By default, GraphServ will look for the GraphCore binary in the subdirectory `gr
 	    -g FILENAME     set group file name [gsgroups.conf]
 	    -c FILENAME     set path of GraphCore binary [./graphcore/graphcore]
 
-Before spawning a GraphCore instance, the child process will chdir() to the directory where graphcore resides. Currently, any redirected output will end up in that directory. Redirection makes any command require admin access.  <todo: darüber nochmal nachdenken, das mit der redirection will man bei einer systemweiten installation vermutlich nicht so haben. integration in verschiedene systeme ist aber sowieso nochmal ein kapitel für sich.>
+Before spawning a GraphCore instance, the child process will chdir() to the directory where graphcore resides. Currently, any redirected output will be written to that directory.   
 
 
 | 
