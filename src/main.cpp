@@ -138,6 +138,9 @@ void HTTPSessionContext::forwardStatusline(const string& line)
             case CMD_NONE:
                 httpWriteErrorResponse(404, "Not Found", line, headerStatusLine);
                 break;
+            case CMD_ACCESSDENIED:
+                httpWriteErrorResponse(401, "Not Authorized", line, headerStatusLine);
+                break;
             default:
                 httpWriteErrorResponse(500, "Invalid GraphCore Status Line", line, headerStatusLine);
                 break;
@@ -173,7 +176,7 @@ CommandStatus ServCli::execute(ServCmd *cmd, vector<string> &words, SessionConte
 {
     if(cmd->getAccessLevel() > sc.accessLevel)
     {
-        sc.forwardStatusline(FAIL_STR + format(_(" insufficient access level (command needs %s, you have %s)\n"),
+        sc.forwardStatusline(DENIED_STR + format(_(" insufficient access level (command needs %s, you have %s)\n"),
                              gAccessLevelNames[cmd->getAccessLevel()], gAccessLevelNames[sc.accessLevel]));
         return CMD_FAILURE;
     }

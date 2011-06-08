@@ -13,7 +13,7 @@ Users can connect to GraphServ via plaintext-TCP or HTTP. GraphServ multiplexes 
 
 GraphServ accepts commands and data in a line-based command language. Its command interface follows the same basic syntax and principles as is used for GraphCore commands (see `GraphCore spec <https://github.com/jkroll20/graphcore/blob/master/spec.rst>`_).
 
-The following is the list of GraphServ commands. Words in square brackets denote access level.
+The following is the list of GraphServ commands. Words in square brackets denote access level (see below).
 
 create-graph [admin] ::
 
@@ -64,7 +64,7 @@ Server and core commands are divided into three access levels: *read*, *write* a
 
 GraphCore commands which modify a graph require *write* access. The *shutdown* command requires *admin* access. 
 
-On connection, GraphServ assigns *read* access to each session. Access levels of a session can be elevated by using the *authorize* command, which tries to authorize with the given authority and credentials. 
+On connection, GraphServ assigns *read* access to a session. Access levels of a session can be elevated by using the *authorize* command, which tries to authorize with the given authority and credentials. 
 
 Password Authority
 ++++++++++++++++++
@@ -77,7 +77,7 @@ The **group file** contains entries of the form *access_level:password:GID:user_
 
 The password authority reads the contents of these files on demand. If one of the files is changed while the server is running, it will be reloaded once a user runs *authorize*. 
 
-If a user name appears in several access levels, the highest level will be used.
+If a user name appears in more than one access level, the highest level will be used.
 
 Example htpasswd and group .conf files are included in the repository. All users in the example files use the password 'test'.
 
@@ -85,7 +85,7 @@ Example htpasswd and group .conf files are included in the repository. All users
 TCP Connections
 ---------------
 
-A user can connect to GraphServ via TCP. All core and server commands can be executed using a TCP connection. Commands and replies are sent in a line-based fashion. Several users can simultaneously execute commands on the same GraphServ instance, or on the same core. ::
+Users can connect to GraphServ over TCP to execute commands. This example uses `netcat <http://netcat.sourceforge.net/>`_. ::
 
 	$ nc localhost 6666
 	help
@@ -132,9 +132,15 @@ To send a command to a core, include its name in the Request-URI. Separate core 
 	$ curl http://localhost:8090/core0/list-predecessors+7	# print direct predecessors of node 7 in core0 on localhost.
 	GET /core0/list-predecessors+7				# corresponding Request-Line.
 
-HTTP Header and Status Code
-+++++++++++++++++++++++++++
+HTTP Response Header and Status Code
+++++++++++++++++++++++++++++++++++++
 
+The HTTP server includes the command status in the Status-Line of the Response. Graph processor command status codes are translated to HTTP Status-Codes in the following way. ::
+
+	Success ('OK.') 				-> 200 OK
+	Failure, graph did not change ('FAILED!') 	-> 400 Bad Request
+	Error, graph may have changed ('ERROR!')	-> 500 Internal Server Error
+	Success with empty result set ('NONE.')		-> 404 Not Found
 
 
 
