@@ -289,7 +289,7 @@ class ccListGraphs: public ServCmd_RTOther
     public:
         string getName() { return "list-graphs"; }
         string getSynopsis() { return getName(); }
-        string getHelpText() { return _("list currently running graph instances."); }
+        string getHelpText() { return _("list currently running graphcore instances."); }
         AccessLevel getAccessLevel() { return ACCESS_READ; }
 
         CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
@@ -344,7 +344,7 @@ class ccServerStats: public ServCmd_RTOther
     public:
         string getName() { return "server-stats"; }
         string getSynopsis() { return getName(); }
-        string getHelpText() { return _("returns some information on the server."); }
+        string getHelpText() { return _("returns information on the server."); }
         AccessLevel getAccessLevel() { return ACCESS_READ; }
 
         CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)

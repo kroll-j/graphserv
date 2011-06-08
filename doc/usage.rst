@@ -5,11 +5,11 @@ The Graph Processor project aims to develop an infrastructure for rapidly analyz
 
 This file documents GraphServ usage.
 
+Users can connect to GraphServ via plaintext-TCP or HTTP. GraphServ multiplexes data to and from GraphServ instances and users. Several users can simultaneously execute commands on the same GraphServ instance, or on the same core. 
+
 
 GraphServ Commands
 ------------------
-
-Users can connect to GraphServ via plaintext-TCP or HTTP. GraphServ multiplexes data to and from GraphServ instances and users. Several users can simultaneously execute commands on the same GraphServ instance, or on the same core. 
 
 GraphServ accepts commands and data in a line-based command language. Its command interface follows the same basic syntax and principles as is used for GraphCore commands (see `GraphCore spec <https://github.com/jkroll20/graphcore/blob/master/spec.rst>`_).
 
@@ -44,7 +44,7 @@ drop-graph [admin] ::
 list-graphs [read] ::
 
 	list-graphs
-	list currently running graph instances.
+	list currently running graphcore instances.
 
 session-info [read] ::
 
@@ -54,7 +54,7 @@ session-info [read] ::
 server-stats [read] ::
 
 	server-stats
-	returns some information on the server.
+	returns information on the server.
 
 
 Access Control
@@ -85,7 +85,7 @@ Example htpasswd and group .conf files are included in the repository. All users
 TCP Connections
 ---------------
 
-Users can connect to GraphServ over TCP to execute commands. This example uses `netcat <http://netcat.sourceforge.net/>`_. ::
+Users can connect to GraphServ over TCP to execute commands. This example uses `netcat <http://netcat.sourceforge.net/>`_: ::
 
 	$ nc localhost 6666
 	help
@@ -105,7 +105,7 @@ Users can connect to GraphServ over TCP to execute commands. This example uses `
 HTTP Connections
 ----------------
 
-GraphServ contains a rudimentary HTTP Server which implements a subset of `HTTP/1.0 <http://www.w3.org/Protocols/rfc1945/rfc1945>`_. The HTTP Server accepts GET requests. One command can be executed per request. The server will close the connection after replying to the request. 
+GraphServ contains a rudimentary HTTP Server which implements a subset of `HTTP/1.0 <http://www.w3.org/Protocols/rfc1945/rfc1945>`_. The HTTP Server accepts GET requests. One command can be executed per request. The server will close the connection after responding to the request. 
 
 As a convenience, an HTTP/1.1 version string will also be accepted in GET requests. The version string in the GET request does not change the behaviour of the server or the contents of the response.
 
@@ -130,12 +130,12 @@ Executing Core Commands
 To send a command to a core, include its name in the Request-URI. Separate core name and command by a forward slash. Example: ::
 	
 	$ curl http://localhost:8090/core0/list-predecessors+7	# print direct predecessors of node 7 in core0 on localhost.
-	GET /core0/list-predecessors+7				# corresponding Request-Line.
+	GET /core0/list-predecessors+7 HTTP/1.1			# corresponding Request-Line.
 
-HTTP Response Header and Status Code
-++++++++++++++++++++++++++++++++++++
+HTTP Response and Status Code
++++++++++++++++++++++++++++++
 
-The HTTP server includes the Graph Processor command status in the Status-Line of the HTTP response. Graph Processor command status codes are translated to HTTP Status-Codes in the following way: ::
+The HTTP server translates Graph Processor command status codes to HTTP Status-Codes in the following way: ::
 
 	Success ('OK.') 				200 OK
 	Failure, graph did not change ('FAILED!') 	400 Bad Request
@@ -144,7 +144,9 @@ The HTTP server includes the Graph Processor command status in the Status-Line o
 	Command not found (special case for HTTP)	501 Not Implemented
 	Access Denied ('DENIED!')			401 Not Authorized
 
-Additionally, the untranslated status line is included in the *X-GraphProcessor:* header field of the HTTP response. Result data records or other command output is sent in the message-body of the response.
+Additionally, the untranslated status line is included in the *X-GraphProcessor:* header field of the HTTP response. 
+
+Result data records or other command output is sent in the message-body of the response.
 
 
 | 
