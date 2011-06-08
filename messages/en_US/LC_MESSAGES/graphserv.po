@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: graphserv\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2011-05-16 16:42+0200\n"
+"POT-Creation-Date: 2011-06-08 19:42+0200\n"
 "PO-Revision-Date: 2011-05-16 16:43+0100\n"
 "Last-Translator: Your name <email@address.blah>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,7 +16,185 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: src/main.cpp:19
-msgid "Hello world!"
+#: src/main.cpp:168
+msgid " no such server command.\n"
 msgstr ""
 
+#: src/main.cpp:179 src/servapp.h:325
+#, c-format
+msgid " insufficient access level (command needs %s, you have %s)\n"
+msgstr ""
+
+#: src/main.cpp:211
+msgid "create a named graphcore instance."
+msgstr ""
+
+#: src/main.cpp:222
+msgid "an instance with this name already exists.\n"
+msgstr ""
+
+#: src/main.cpp:224
+msgid "Graphserv::createCoreInstance() failed.\n"
+msgstr ""
+
+#: src/main.cpp:226
+#, c-format
+msgid "spawned pid %d.\n"
+msgstr ""
+
+#: src/main.cpp:237
+msgid "connect to a named graphcore instance."
+msgstr ""
+
+#: src/main.cpp:248
+msgid "already connected. switching instances is not currently supported.\n"
+msgstr ""
+
+#: src/main.cpp:250 src/main.cpp:274
+msgid "no such instance.\n"
+msgstr ""
+
+#: src/main.cpp:252
+#, c-format
+msgid "connected to pid %d.\n"
+msgstr ""
+
+#: src/main.cpp:263
+msgid "drop a named graphcore instance immediately (terminate the process)."
+msgstr ""
+
+#: src/main.cpp:277
+#, c-format
+msgid "couldn't kill the process. %s\n"
+msgstr ""
+
+#: src/main.cpp:280
+#, c-format
+msgid "killed pid %d.\n"
+msgstr ""
+
+#: src/main.cpp:292
+msgid "list currently running graphcore instances."
+msgstr ""
+
+#: src/main.cpp:303
+msgid "running graphs:\n"
+msgstr ""
+
+#: src/main.cpp:319
+msgid "returns information on your current session."
+msgstr ""
+
+#: src/main.cpp:330
+msgid "session info:\n"
+msgstr ""
+
+#: src/main.cpp:347
+msgid "returns information on the server."
+msgstr ""
+
+#: src/main.cpp:358
+msgid "server info:\n"
+msgstr ""
+
+#: src/main.cpp:373
+msgid "authorize with the named authority using the given credentials."
+msgstr ""
+
+#: src/main.cpp:388
+#, c-format
+msgid "no such authority '%s'.\n"
+msgstr ""
+
+#: src/main.cpp:394
+msgid "authorization failure.\n"
+msgstr ""
+
+#: src/main.cpp:398
+#, c-format
+msgid "access level: %s\n"
+msgstr ""
+
+#: src/main.cpp:411
+msgid "print info (debugging)"
+msgstr ""
+
+#: src/main.cpp:449 src/main.cpp:477
+msgid "get help on commands"
+msgstr ""
+
+#: src/main.cpp:457 src/main.cpp:496
+msgid "available commands:\n"
+msgstr ""
+
+#: src/main.cpp:462
+msgid ""
+"note: 'corehelp' prints help on core commands when connected to a core.\n"
+msgstr ""
+
+#: src/main.cpp:504
+msgid "the following are the core commands:\n"
+msgstr ""
+
+#: src/coreinstance.h:107
+msgid "core replied: "
+msgstr ""
+
+#: src/coreinstance.h:114
+msgid "protocol version mismatch (server: "
+msgstr ""
+
+#: src/coreinstance.h:126
+msgid "child process terminated by signal"
+msgstr ""
+
+#: src/coreinstance.h:130
+msgid "child process exited: "
+msgstr ""
+
+#: src/servapp.h:320
+#, c-format
+msgid "%s client has invalid core ID %u\n"
+msgstr ""
+
+#: src/servapp.h:330
+#, c-format
+msgid "no such core command '%s'."
+msgstr ""
+
+#: src/servapp.h:542
+#, c-format
+msgid "%s %s accepts no data set.\n"
+msgstr ""
+
+#: src/servapp.h:544
+msgid " input/output of server commands can't be redirected.\n"
+msgstr ""
+
+#: src/servapp.h:555 src/servapp.h:557
+#, c-format
+msgid "no such server command '%s'."
+msgstr ""
+
+#: src/servapp.h:572
+#, c-format
+msgid "bad HTTP request string, disconnecting.\n"
+msgstr ""
+
+#: src/servapp.h:579
+#, c-format
+msgid "unknown HTTP version, disconnecting.\n"
+msgstr ""
+
+#: src/servapp.h:599
+#, c-format
+msgid "i=%d len=%d %s %02X bad hex in request URI, disconnecting\n"
+msgstr ""
+
+#: src/servapp.h:607
+msgid " data sets not allowed in HTTP GET requests.\n"
+msgstr ""
+
+#: src/servapp.h:628
+msgid "No such instance."
+msgstr ""

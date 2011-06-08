@@ -11,7 +11,7 @@ MSGDIR=messages
 DOMAIN=graphserv
 
 # find languages
-LANGUAGES=$(cd messages; find -mindepth 1 -maxdepth 1 -type d -execdir basename '{}' ';')
+LANGUAGES=$(cd $MSGDIR; find -mindepth 1 -maxdepth 1 -type d -execdir basename '{}' ';')
 
 SRC=$(find src -name '*.cpp'; find src -name '*.h')
 
