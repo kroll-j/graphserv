@@ -135,13 +135,16 @@ To send a command to a core, include its name in the Request-URI. Separate core 
 HTTP Response Header and Status Code
 ++++++++++++++++++++++++++++++++++++
 
-The HTTP server includes the command status in the Status-Line of the Response. Graph processor command status codes are translated to HTTP Status-Codes in the following way. ::
+The HTTP server includes the Graph Processor command status in the Status-Line of the HTTP response. Graph Processor command status codes are translated to HTTP Status-Codes in the following way: ::
 
-	Success ('OK.') 				-> 200 OK
-	Failure, graph did not change ('FAILED!') 	-> 400 Bad Request
-	Error, graph may have changed ('ERROR!')	-> 500 Internal Server Error
-	Success with empty result set ('NONE.')		-> 404 Not Found
+	Success ('OK.') 				200 OK
+	Failure, graph did not change ('FAILED!') 	400 Bad Request
+	Error, graph may have changed ('ERROR!')	500 Internal Server Error
+	Success with empty result set ('NONE.')		404 Not Found
+	Command not found (special case for HTTP)	501 Not Implemented
+	Access Denied ('DENIED!')			401 Not Authorized
 
+Additionally, the untranslated status line is included in the *X-GraphProcessor:* header field of the HTTP response. Result data records or other command output is sent in the message-body of the response.
 
 
 | 
