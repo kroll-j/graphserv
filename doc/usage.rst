@@ -5,11 +5,80 @@ The Graph Processor project aims to develop an infrastructure for rapidly analyz
 
 This file documents GraphServ usage.
 
+
 GraphServ Commands
 ------------------
 
-Authorization
--------------
+GraphCore accepts commands and data in a line-based command language. Its command interface follows the same basic syntax and principles as is used for GraphCore commands (see `GraphCore spec <https://github.com/jkroll20/graphcore/blob/master/spec.rst>`_).
+
+The following is the list of GraphServ commands. Words in square brackets denote access level.
+
+create-graph [admin] ::
+
+	create-graph GRAPHNAME
+	create a named graphcore instance.
+
+use-graph [read] ::
+
+	use-graph GRAPHNAME
+	connect to a named graphcore instance.
+
+authorize [read] ::
+
+	authorize AUTHORITY CREDENTIALS
+	authorize with the names authority using the given credentials.
+	one authority named 'password' is implemented, which takes credentials of the form user:password.
+
+help [read] ::
+
+	help [COMMAND]
+	get help on server and core commands.
+
+drop-graph [admin] ::
+
+	drop-graph GRAPHNAME
+	drop a named graphcore instance immediately (terminate the process).
+
+list-graphs [read] ::
+
+	list-graphs
+	list currently running graph instances.
+
+session-info [read] ::
+
+	session-info
+	returns information on your current session.
+
+server-stats [read] ::
+
+	server-stats
+	returns some information on the server.
+
+
+Access Control
+--------------
+
+Server and core commands are divided into three access levels: *read*, *write* and *admin*. To execute a command, a session's access level must be equal to or higher than the command's access level.
+
+GraphCore commands which modify a graph require *write* access. The *shutdown* command requires *admin* access. 
+
+On connection, GraphServ assigns *read* access to each session. Access levels of a session can be elevated by using the *authorize* command, which tries to authorize with the given authority and credentials. 
+
+Password Authority
+++++++++++++++++++
+
+The *password* authority implements access control using a htpassword-file and corresponding unix-style group file. A user authenticates by running the command *authorize password username:password*.
+
+The htpassword file contains entries of the form *user:password-hash* and can be created and modified with the `htpasswd <http://httpd.apache.org/docs/2.0/programs/htpasswd.html>`_ tool. GraphServ supports passwords hashed with crypt() (htpasswd -d).
+
+The group file contains entries of the form *access_level:password:GID:user_list*. The password and GID fields are ignored, and can be blank. *access_level* must be one of read, write, or admin. *user_list* is a comma-separated list of usernames.
+
+The password authority reads the contents of these files on demand. If one of the files is changed while the server is running, it will be reloaded once a user runs *authorize*. 
+
+If a user name is included in several access levels, it will be assigned the highest level.
+
+Example htpasswd and group .conf files are included in the repository. All users in the example files use the password 'test'.
+
 
 TCP Connections
 ---------------

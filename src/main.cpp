@@ -367,7 +367,7 @@ class ccAuthorize: public ServCmd_RTVoid
     public:
         string getName() { return "authorize"; }
         string getSynopsis() { return getName() + " AUTHORITY CREDENTIALS"; }
-        string getHelpText() { return _("authorize with the given authority using the given credentials."); }
+        string getHelpText() { return _("authorize with the named authority using the given credentials."); }
         AccessLevel getAccessLevel() { return ACCESS_READ; }
 
         CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
