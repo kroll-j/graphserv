@@ -355,7 +355,7 @@ class ccServerStats: public ServCmd_RTOther
             cliSuccess(_("server info:\n"));
             sc.forwardStatusline(lastStatusMessage);
             // this currently just outputs the minimal info: number of cores. should return more useful info.
-            sc.forwardDataset(format("NCores,%d", app.getCoreInstances().size()));
+            sc.forwardDataset(format("NCores,%d\n", app.getCoreInstances().size()));
             sc.forwardDataset("\n");
             return CMD_SUCCESS;
         }
