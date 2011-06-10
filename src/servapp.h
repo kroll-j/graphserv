@@ -453,6 +453,7 @@ class Graphserv
             {
                 case CONN_TCP:  newSession= new SessionContext(*this, newID, sock, connType); break;
                 case CONN_HTTP: newSession= new HTTPSessionContext(*this, newID, sock); break;
+                default:        fprintf(stderr, "createSession: unknown connection type %d!\n", connType); return 0;
             }
             sessionContexts.insert( pair<uint32_t,SessionContext*>(newID, newSession) );
             return newSession;

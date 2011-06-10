@@ -223,7 +223,7 @@ class ccCreateGraph: public ServCmd_RTVoid
             CoreInstance *core= app.createCoreInstance(words[1]);
             if(!core) { cliFailure(_("Graphserv::createCoreInstance() failed.\n")); return CMD_FAILURE; }
             if(!core->startCore()) { cliFailure("startCore(): %s\n", core->getLastError().c_str()); app.removeCoreInstance(core); return CMD_FAILURE; }
-            cliSuccess(_("spawned pid %d.\n"), core->getPid());
+            cliSuccess(_("spawned pid %d.\n"), (int)core->getPid());
             return CMD_SUCCESS;
         }
 
@@ -249,7 +249,7 @@ class ccUseGraph: public ServCmd_RTVoid
             CoreInstance *core= app.findNamedInstance(words[1]);
             if(!core) { cliFailure(_("no such instance.\n")); return CMD_FAILURE; }
             sc.coreID= core->getID();
-            cliSuccess(_("connected to pid %d.\n"), core->getPid());
+            cliSuccess(_("connected to pid %d.\n"), (int)core->getPid());
             return CMD_SUCCESS;
         }
 
@@ -277,7 +277,7 @@ class ccDropGraph: public ServCmd_RTVoid
                 cliFailure(_("couldn't kill the process. %s\n"), strerror(errno));
                 return CMD_FAILURE;
             }
-            cliSuccess(_("killed pid %d.\n"), core->getPid());
+            cliSuccess(_("killed pid %d.\n"), (int)core->getPid());
             app.removeCoreInstance(core);
             return CMD_SUCCESS;
         }
