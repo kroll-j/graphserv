@@ -5,6 +5,8 @@
 #ifndef SESSION_H
 #define SESSION_H
 
+// session context with information about and methods for handling a client connection.
+// this base class handles TCP connections.
 struct SessionContext: public NonblockWriter
 {
     uint32_t clientID;
@@ -84,6 +86,8 @@ struct SessionContext: public NonblockWriter
 };
 
 
+// session context with information about and methods for handling a client connection.
+// this class handles HTTP connections.
 struct HTTPSessionContext: public SessionContext
 {
     bool conversationFinished;  // client will be disconnected when this is false and there's no buffered data left.

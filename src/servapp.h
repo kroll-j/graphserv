@@ -633,8 +633,15 @@ class Graphserv
                 }
                 else
                 {
-                    // try to execute the request as one command.
-                    lineFromClient(transformedURI, sc, timestamp);
+                    if(Cli::splitString(transformedURI.c_str()).size())
+                        // try to execute the request as one command.
+                        lineFromClient(transformedURI, sc, timestamp);
+                    else
+                    {
+                        // empty request strings are not valid for http clients. output nothing and disconnect.
+                        fprintf(stderr, _("empty HTTP request string, disconnecting.\n"));
+                        shutdownClient(&sc);
+                    }
                 }
             }
         }

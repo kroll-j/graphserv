@@ -43,7 +43,6 @@
 		</ExtraCommands>
 		<Unit filename="../src/auth.h" />
 		<Unit filename="../src/const.h" />
-		<Unit filename="../src/const_h" />
 		<Unit filename="../src/coreinstance.h" />
 		<Unit filename="../src/main.cpp" />
 		<Unit filename="../src/servapp.h" />
