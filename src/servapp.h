@@ -588,14 +588,14 @@ class Graphserv
                 if(words.size()!=3)     // this does not look like an HTTP request. disconnect the client.
                 {
                     fprintf(stderr, _("bad HTTP request string, disconnecting.\n"));
-                    shutdownClient(&sc);
+                    sc.forwardStatusline(string(FAIL_STR) + _(" bad HTTP request string.\n"));
                     return;
                 }
                 transform(words[2].begin(), words[2].end(),words[2].begin(), ::toupper);
                 if( (words[2]!="HTTP/1.0") && (words[2]!="HTTP/1.1") )  // accept HTTP/1.1 too, if only for debugging.
                 {
                     fprintf(stderr, _("unknown HTTP version, disconnecting.\n"));
-                    shutdownClient(&sc);
+                    sc.forwardStatusline(string(FAIL_STR) + _(" unknown HTTP version.\n"));
                     return;
                 }
 
@@ -611,11 +611,19 @@ class Graphserv
                             transformedURI+= ' ';
                             break;
                         case '%':
+                            // "%%" -> %
+                            if(i<urilen-1 && uri[i+1]=='%')
+                            {
+                                transformedURI+= '%';
+                                i++;
+                                break;
+                            }
+                            // translate hex string
                             unsigned hexChar;
                             if( urilen-i<3 || sscanf(uri+i+1, "%02X", &hexChar)!=1 || !isprint(hexChar) )
                             {
                                 fprintf(stderr, _("i=%d len=%d %s %02X bad hex in request URI, disconnecting\n"), i, urilen, uri+i+1, hexChar);
-                                shutdownClient(&sc);
+                                sc.forwardStatusline(string(FAIL_STR) + _(" bad hex in request URI.\n"));
                                 return;
                             }
                             transformedURI+= (char)hexChar;
@@ -625,8 +633,9 @@ class Graphserv
                             sc.forwardStatusline(string(FAIL_STR) + _(" data sets not allowed in HTTP GET requests.\n"));
                             return;
                         case '/':
+                            // remove first forward slash.
                             if(i==0) break;
-                            // else fall through
+                            // fall through
                         default:
                             transformedURI+= uri[i];
                             break;
@@ -658,7 +667,7 @@ class Graphserv
                     {
                         // empty request strings are not valid for http clients. output nothing and disconnect.
                         fprintf(stderr, _("empty HTTP request string, disconnecting.\n"));
-                        shutdownClient(&sc);
+                        sc.forwardStatusline(string(FAIL_STR) + _(" empty request string.\n"));
                     }
                 }
             }
