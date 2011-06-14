@@ -210,7 +210,7 @@ class ccCreateGraph: public ServCmd_RTVoid
         string getSynopsis() { return getName() + " GRAPHNAME"; }
         string getHelpText() { return _("create a named graphcore instance.\n"
                                         "# graph names may contain only alphabetic characters (a-z A-Z), digits (0-9), hyphens (-) and underscores (_).\n"
-                                        "# graph names must start with an alphabetic character."); }
+                                        "# graph names must start with an alphabetic character, a hyphen or an underscore."); }
         AccessLevel getAccessLevel() { return ACCESS_ADMIN; }
 
         CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)

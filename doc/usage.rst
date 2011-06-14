@@ -20,7 +20,7 @@ create-graph [admin] ::
 	create-graph GRAPHNAME
 	create a named graphcore instance.
 	graph names may contain only alphabetic characters (a-z A-Z), digits (0-9), hyphens (-) and underscores (_). 
-	graph names must start with an alphabetic character.
+	graph names must start with an alphabetic character, a hyphen or an underscore.
 
 use-graph [read] ::
 

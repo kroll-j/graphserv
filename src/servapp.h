@@ -241,13 +241,13 @@ class Graphserv
         }
 
         // check for valid graph name.
-        // [a-zA-Z][a-zA-Z0-9_-]*
+        // [a-zA-Z_-][a-zA-Z0-9_-]*
         bool isValidGraphName(const string& name)
         {
             int sz= name.size();
             if(!sz) return false;
             char c= name[0];
-            if( !isupper(c) && !islower(c) ) return false;
+            if( !isupper(c) && !islower(c) && c!='-' && c!='_' ) return false;
             for(size_t i= 0; i<name.size(); i++)
             {
                 c= name[i];
