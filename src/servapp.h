@@ -538,7 +538,7 @@ class Graphserv
                 }
             }
 
-            vector<string> words= Cli::splitString(line.c_str(), " \t");
+            vector<string> words= Cli::splitString(line.c_str(), " \t\n");
             if(words.empty()) return;
 
             // check line for terminating colon ':'

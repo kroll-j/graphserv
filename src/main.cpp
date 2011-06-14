@@ -160,7 +160,7 @@ void HTTPSessionContext::forwardStatusline(const string& line)
 // parse and execute a server command line.
 CommandStatus ServCli::execute(string command, class SessionContext &sc)
 {
-    vector<string> words= splitString(command.c_str(), " \t");
+    vector<string> words= splitString(command.c_str(), " \t\n");
     if(words.empty()) return CMD_SUCCESS;
     ServCmd *cmd= (ServCmd*)findCommand(words[0]);
     if(!cmd)
@@ -208,7 +208,9 @@ class ccCreateGraph: public ServCmd_RTVoid
     public:
         string getName() { return "create-graph"; }
         string getSynopsis() { return getName() + " GRAPHNAME"; }
-        string getHelpText() { return _("create a named graphcore instance."); }
+        string getHelpText() { return _("create a named graphcore instance.\n"
+                                        "# graph names may contain only alphabetic characters (a-z A-Z), digits (0-9), hyphens (-) and underscores (_).\n"
+                                        "# graph names must start with an alphabetic character."); }
         AccessLevel getAccessLevel() { return ACCESS_ADMIN; }
 
         CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
