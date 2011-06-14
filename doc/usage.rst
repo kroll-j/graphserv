@@ -58,6 +58,12 @@ server-stats [read] ::
 	server-stats
 	returns information on the server.
 
+protocol-version [read] ::
+
+	protocol-version
+	the protocol-version is used to check for compatibility of the server and core binaries.
+	this command prints the protocol-version of the server.
+
 
 Access Control
 --------------

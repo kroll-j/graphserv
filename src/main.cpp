@@ -278,7 +278,7 @@ class ccDropGraph: public ServCmd_RTVoid
                 return CMD_FAILURE;
             }
             CoreInstance *core= app.findNamedInstance(words[1]);
-            if(!core) { cliFailure(_("no such instance.\n")); return CMD_FAILURE; }
+            if(!core) { cliNone(_("no such instance.\n")); return CMD_FAILURE; }
             if(kill(core->getPid(), SIGTERM)<0)
             {
                 cliFailure(_("couldn't kill the process. %s\n"), strerror(errno));
@@ -403,6 +403,30 @@ class ccAuthorize: public ServCmd_RTVoid
             }
             sc.accessLevel= newAccessLevel;
             cliSuccess(_("access level: %s\n"), gAccessLevelNames[sc.accessLevel]);
+            return CMD_SUCCESS;
+        }
+
+};
+
+class ccProtocolVersion: public ServCmd_RTVoid
+{
+    public:
+        string getName() { return "protocol-version"; }
+        string getSynopsis() { return getName(); }
+        string getHelpText() { return _("the protocol-version is used to check for compatibility of the server and core binaries.\n"
+                                        "# this command prints the protocol-version of the server."); }
+        AccessLevel getAccessLevel() { return ACCESS_READ; }
+
+        CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
+        {
+            if(words.size()!=1)
+            {
+                syntaxError();
+                return CMD_FAILURE;
+            }
+
+            cliSuccess(stringify(PROTOCOL_VERSION) "\n");
+
             return CMD_SUCCESS;
         }
 
@@ -560,6 +584,7 @@ ServCli::ServCli(Graphserv &_app): app(_app)
     addCommand(new ccListGraphs());
     addCommand(new ccSessionInfo());
     addCommand(new ccServerStats());
+    addCommand(new ccProtocolVersion());
 }
 
 
