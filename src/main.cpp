@@ -160,7 +160,7 @@ void HTTPSessionContext::forwardStatusline(const string& line)
 // parse and execute a server command line.
 CommandStatus ServCli::execute(string command, class SessionContext &sc)
 {
-    vector<string> words= splitString(command.c_str());
+    vector<string> words= splitString(command.c_str(), " \t");
     if(words.empty()) return CMD_SUCCESS;
     ServCmd *cmd= (ServCmd*)findCommand(words[0]);
     if(!cmd)
@@ -216,6 +216,11 @@ class ccCreateGraph: public ServCmd_RTVoid
             if(words.size()!=2)
             {
                 syntaxError();
+                return CMD_FAILURE;
+            }
+            if(!app.isValidGraphName(words[1]))
+            {
+                cliFailure("invalid graph name.\n");
                 return CMD_FAILURE;
             }
             // check whether named instance already exists, try spawning core instance, return.

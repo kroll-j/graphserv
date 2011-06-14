@@ -240,6 +240,23 @@ class Graphserv
             return true;
         }
 
+        // check for valid graph name.
+        // [a-zA-Z][a-zA-Z0-9_-]*
+        bool isValidGraphName(const string& name)
+        {
+            int sz= name.size();
+            if(!sz) return false;
+            char c= name[0];
+            if( !isupper(c) && !islower(c) ) return false;
+            for(size_t i= 0; i<name.size(); i++)
+            {
+                c= name[i];
+                if( !isupper(c) && !islower(c) && !isalpha(c) && c!='-' && c!='_' )
+                    return false;
+            }
+            return true;
+        }
+
         // find a named instance.
         CoreInstance *findNamedInstance(string name)
         {
@@ -521,7 +538,7 @@ class Graphserv
                 }
             }
 
-            vector<string> words= Cli::splitString(line.c_str());
+            vector<string> words= Cli::splitString(line.c_str(), " \t");
             if(words.empty()) return;
 
             // check line for terminating colon ':'
