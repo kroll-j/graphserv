@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
 <CodeBlocks_workspace_file>
 	<Workspace title="Workspace">
-		<Project filename="../../graphcore/proj/graphcore.cbp" />
-		<Project filename="graphserv.cbp" active="1">
+		<Project filename="../../graphcore/proj/graphcore.cbp" active="1" />
+		<Project filename="graphserv.cbp">
 			<Depends filename="../../graphcore/proj/graphcore.cbp" />
 		</Project>
 	</Workspace>
