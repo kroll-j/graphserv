@@ -37,9 +37,21 @@ class Graphserv
 
         bool run()
         {
-            int listenSocket= openListenSocket(tcpPort);
-            int httpSocket= openListenSocket(httpPort);
+            int listenSocket= (tcpPort? openListenSocket(tcpPort): 0);
+            if(listenSocket<0)
+            {
+                fprintf(stderr, _("couldn't create socket for TCP connections (port %d).\n"), tcpPort);
+                return false;
+            }
+            int httpSocket= (httpPort? openListenSocket(httpPort): 0);
+            if(httpSocket<0)
+            {
+                fprintf(stderr, _("couldn't create socket for HTTP connections (port %d).\n"), httpPort);
+                return false;
+            }
+
             fd_set readfds, writefds;
+
 
             int maxfd;
 
@@ -53,8 +65,8 @@ class Graphserv
 
                 maxfd= 0;
 
-                fd_add(readfds, listenSocket, maxfd);
-                fd_add(readfds, httpSocket, maxfd);
+                if(listenSocket) fd_add(readfds, listenSocket, maxfd);
+                if(httpSocket) fd_add(readfds, httpSocket, maxfd);
 
                 // deferred removal of clients
                 for(set<uint32_t>::iterator i= clientsToRemove.begin(); i!=clientsToRemove.end(); i++)
@@ -125,11 +137,11 @@ class Graphserv
 
                 // check for incoming connections.
 
-                if(FD_ISSET(listenSocket, &readfds))
+                if(listenSocket && FD_ISSET(listenSocket, &readfds))
                     if(!acceptConnection(listenSocket, CONN_TCP))
                         fprintf(stderr, "couldn't create connection.\n");
 
-                if(FD_ISSET(httpSocket, &readfds))
+                if(httpSocket && FD_ISSET(httpSocket, &readfds))
                     if(!acceptConnection(httpSocket, CONN_HTTP))
                         fprintf(stderr, "couldn't create connection.\n");
 
@@ -251,7 +263,7 @@ class Graphserv
             for(size_t i= 0; i<name.size(); i++)
             {
                 c= name[i];
-                if( !isupper(c) && !islower(c) && !isalpha(c) && c!='-' && c!='_' )
+                if( !isupper(c) && !islower(c) && !isdigit(c) && c!='-' && c!='_' )
                     return false;
             }
             return true;

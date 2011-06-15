@@ -643,8 +643,8 @@ int main(int argc, char *argv[])
                 printf("use: %s [options]\n", argv[0]);
                 printf("options:\n"
                        "    -h              print this text\n"
-                       "    -t PORT         listen on PORT for tcp connections [" stringify(DEFAULT_TCP_PORT) "]\n"
-                       "    -H PORT         listen on PORT for http connections [" stringify(DEFAULT_HTTP_PORT) "]\n"
+                       "    -t PORT         listen on PORT for tcp connections [" stringify(DEFAULT_TCP_PORT) "]. zero to disable.\n"
+                       "    -H PORT         listen on PORT for http connections [" stringify(DEFAULT_HTTP_PORT) "]. zero to disable.\n"
                        "    -p FILENAME     set htpassword file name [" DEFAULT_HTPASSWD_FILENAME "]\n"
                        "    -g FILENAME     set group file name [" DEFAULT_GROUP_FILENAME "]\n"
                        "    -c FILENAME     set path of GraphCore binary [" DEFAULT_CORE_PATH "]\n"
@@ -667,6 +667,10 @@ int main(int argc, char *argv[])
                 break;
         }
 
+    if( !(tcpPort || httpPort) )
+        puts(_("at least one of TCP or HTTP ports must be enabled.")),
+        exit(1);
+
     bindtextdomain("graphserv", "./messages");
     textdomain("graphserv");
 
@@ -676,7 +680,7 @@ int main(int argc, char *argv[])
 
     // instantiate app and kick off main loop.
     Graphserv s(tcpPort, httpPort, htpwFilename, groupFilename, corePath);
-    s.run();
+    if(!s.run()) return 1;  // exit with error.
 
     return 0;
 }
