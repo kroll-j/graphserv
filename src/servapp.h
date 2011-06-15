@@ -338,13 +338,27 @@ class Graphserv
                 }
                 else
                 {
-                    // forward line as if it came from core so that the http code can do its stuff
-                    sc.forwardStatusline(string(FAIL_STR " ") + format(_(" insufficient access level (command needs %s, you have %s)\n"),
-                                         gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]));
+                    if(hasDataSet)
+                        // read data set, then print error message.
+                        sc.invalidDatasetStatus= CMD_FAILURE,
+                        sc.invalidDatasetMsg= format(_("%s insufficient access level (command needs %s, you have %s)\n"), FAIL_STR,
+                                                     gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]);
+                    else
+                        // forward line as if it came from core so that the http code can do its stuff
+                        sc.forwardStatusline(string(FAIL_STR " ") + format(_("insufficient access level (command needs %s, you have %s)\n"),
+                                             gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]));
                 }
             }
             else
-                sc.commandNotFound(format(_("no such core command '%s'."), words[0].c_str()));
+            {
+                if(hasDataSet)
+                    // read data set, then print error message.
+                    sc.invalidDatasetStatus= CMD_NOT_FOUND,
+                    sc.invalidDatasetMsg= format(_("no such core command '%s'."), words[0].c_str());
+                else
+                    // print error message.
+                    sc.commandNotFound(format(_("no such core command '%s'."), words[0].c_str()));
+            }
         }
 
         // get the core instances
@@ -507,6 +521,7 @@ class Graphserv
                         sc.forwardStatusline(sc.invalidDatasetMsg);
                     // reset status code so following commands can succeed
                     sc.invalidDatasetStatus= CMD_SUCCESS;
+                    sc.invalidDatasetMsg.resize(0);
                 }
                 return;
             }
