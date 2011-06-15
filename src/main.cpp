@@ -203,6 +203,29 @@ CommandStatus ServCli::execute(ServCmd *cmd, vector<string> &words, SessionConte
 
 /////////////////////////////////////////// server commands ///////////////////////////////////////////
 
+class ccQuit: public ServCmd_RTOther
+{
+    public:
+        string getName() { return "quit"; }
+        string getSynopsis() { return getName(); }
+        string getHelpText() { return _("disconnect from the server."); }
+        AccessLevel getAccessLevel() { return ACCESS_READ; }
+
+        CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
+        {
+            if(words.size()!=1)
+            {
+                syntaxError();
+                return CMD_FAILURE;
+            }
+            cliSuccess("bye.\n");
+            sc.forwardStatusline(lastStatusMessage);
+            app.shutdownClient(&sc);
+            return CMD_SUCCESS;
+        }
+
+};
+
 class ccCreateGraph: public ServCmd_RTVoid
 {
     public:
@@ -585,6 +608,7 @@ ServCli::ServCli(Graphserv &_app): app(_app)
     addCommand(new ccSessionInfo());
     addCommand(new ccServerStats());
     addCommand(new ccProtocolVersion());
+    addCommand(new ccQuit());
 }
 
 
