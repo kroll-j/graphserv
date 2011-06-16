@@ -36,7 +36,7 @@ class CoreInstance: public NonblockWriter
 
         void writeFailed(int _errno)
         {
-            perror("write failed");
+            logerror("write failed");
             // read will return 0, core will be removed.
         }
 

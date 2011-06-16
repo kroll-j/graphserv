@@ -5,11 +5,46 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+enum Loglevel
+{
+    LOG_INFO,
+    LOG_ERROR,
+    LOG_AUTH,
+    LOG_CRIT
+};
+
+extern uint32_t logMask;
+
+void flog(Loglevel level, const char *fmt, ...)
+{
+    if( !(logMask & (1<<level)) && level!=LOG_CRIT ) return;
+
+    char timeStr[200];
+    time_t t;
+    struct tm *tmp;
+
+    t= time(0);
+    tmp= localtime(&t);
+    if(!tmp)
+        strcpy(timeStr, "localtime failed");
+    else if(strftime(timeStr, sizeof(timeStr), "%F %H:%M.%S", tmp)==0)
+        strcpy(timeStr, "strftime returned 0");
+
+    fprintf(stderr, "[%s] ", timeStr);
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(stderr, fmt, ap);
+    va_end(ap);
+}
+
+#define logerror(str)   \
+    flog(LOG_ERROR, "%s: %s\n", str, strerror(errno))
+
 // time measurement
 inline double getTime()
 {
     timeval tv;
-    if(gettimeofday(&tv, 0)<0) perror("gettimeofday");
+    if(gettimeofday(&tv, 0)<0) logerror("gettimeofday");
     return tv.tv_sec + tv.tv_usec*0.000001;
 }
 
@@ -19,14 +54,14 @@ inline bool setNonblocking(int fd, bool on= true)
 	int opts= fcntl(fd, F_GETFL);
 	if(opts<0)
     {
-		perror("fcntl(F_GETFL)");
+		logerror("fcntl(F_GETFL)");
 		return false;
 	}
 	if(on) opts|= O_NONBLOCK;
 	else opts&= (~O_NONBLOCK);
 	if(fcntl(fd, F_SETFL, opts)<0)
 	{
-		perror("fcntl(F_SETFL)");
+		logerror("fcntl(F_SETFL)");
 		return false;
 	}
 	return true;
@@ -38,13 +73,13 @@ inline bool closeOnExec(int fd)
     int opts= fcntl(fd, F_GETFD);
     if(opts<0)
     {
-        perror("fcntl(F_GETFD)");
+        logerror("fcntl(F_GETFD)");
         return false;
     }
     opts|= FD_CLOEXEC;
     if(fcntl(fd, F_SETFD, opts)<0)
     {
-        perror("fcntl(F_SETFD)");
+        logerror("fcntl(F_SETFD)");
         return false;
     }
     return true;
@@ -58,7 +93,7 @@ inline CommandStatus getStatusCode(const string& msg)
     for(unsigned i= 0; i<sizeof(statusMsgs)/sizeof(statusMsgs[0]); i++)
         if(statusMsgs[i]==msg)
             return (CommandStatus)i;
-    fprintf(stderr, "getStatusCode called with bad string %s. Please report this bug.\n", msg.c_str());
+    flog(LOG_ERROR, "getStatusCode called with bad string %s. Please report this bug.\n", msg.c_str());
     return CMD_FAILURE;
 }
 
@@ -145,16 +180,12 @@ class NonblockWriter
             if(sz<0)
             {
                 if( (errno!=EAGAIN)&&(errno!=EWOULDBLOCK) )
-                    perror("write"),
+                    logerror("write"),
                     writeFailed(errno);
                 return 0;
             }
             return sz;
         }
 };
-
-
-
-
 
 #endif // UTILS_H

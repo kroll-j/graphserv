@@ -40,13 +40,13 @@ class Graphserv
             int listenSocket= (tcpPort? openListenSocket(tcpPort): 0);
             if(listenSocket<0)
             {
-                fprintf(stderr, _("couldn't create socket for TCP connections (port %d).\n"), tcpPort);
+                flog(LOG_CRIT, _("couldn't create socket for TCP connections (port %d).\n"), tcpPort);
                 return false;
             }
             int httpSocket= (httpPort? openListenSocket(httpPort): 0);
             if(httpSocket<0)
             {
-                fprintf(stderr, _("couldn't create socket for HTTP connections (port %d).\n"), httpPort);
+                flog(LOG_CRIT, _("couldn't create socket for HTTP connections (port %d).\n"), httpPort);
                 return false;
             }
 
@@ -55,7 +55,7 @@ class Graphserv
 
             int maxfd;
 
-            puts("main loop");
+            flog(LOG_INFO, "entering main loop\n");
             while(true)
             {
                 double time= getTime();
@@ -81,8 +81,8 @@ class Graphserv
                     if(d>10.0)
                     {
                         sc->stats.normalize(time);
-                        fprintf(stderr, "client %u: bytesSent %.2f, linesQueued %.2f, coreCommandsSent %.2f, servCommandsSent %.2f\n",
-                                sc->clientID, sc->stats.bytesSent, sc->stats.linesQueued, sc->stats.coreCommandsSent, sc->stats.servCommandsSent);
+                        flog(LOG_INFO, "client %u: bytesSent %.2f, linesQueued %.2f, coreCommandsSent %.2f, servCommandsSent %.2f\n",
+                             sc->clientID, sc->stats.bytesSent, sc->stats.linesQueued, sc->stats.coreCommandsSent, sc->stats.servCommandsSent);
                         // possibly do something like this later to prevent flooding.
                         /* if(sc->stats.bytesSent>1000) sc->chokeTime= time+0.5; */
                         sc->stats.reset();
@@ -112,19 +112,19 @@ class Graphserv
                 int r= select(maxfd+1, &readfds, &writefds, 0, &timeout);
                 if(r<0)
                 {
-                    perror("select()");
+                    logerror("select()");
                     switch(errno)
                     {
                         case EBADF:
                             // a file descriptor is bad, find out which and remove the client or core.
                             for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
                                 if( !i->second->writeBufferEmpty() && fcntl(i->second->sockfd, F_GETFL)==-1 )
-                                    fprintf(stderr, "bad fd, removing client %d.\n", i->second->clientID),
+                                    flog(LOG_ERROR, "bad fd, removing client %d.\n", i->second->clientID),
                                     forceClientDisconnect(i->second);
                             for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++ )
                                 if( fcntl(i->second->getReadFd(), F_GETFL)==-1 ||
                                     (!i->second->writeBufferEmpty() && fcntl(i->second->getWriteFd(), F_GETFL)==-1) )
-                                    fprintf(stderr, "bad fd, removing core %d.\n", i->second->getID()),
+                                    flog(LOG_ERROR, "bad fd, removing core %d.\n", i->second->getID()),
                                     removeCoreInstance(i->second);
                             continue;
 
@@ -139,11 +139,11 @@ class Graphserv
 
                 if(listenSocket && FD_ISSET(listenSocket, &readfds))
                     if(!acceptConnection(listenSocket, CONN_TCP))
-                        fprintf(stderr, "couldn't create connection.\n");
+                        flog(LOG_ERROR, "couldn't create connection.\n");
 
                 if(httpSocket && FD_ISSET(httpSocket, &readfds))
                     if(!acceptConnection(httpSocket, CONN_HTTP))
-                        fprintf(stderr, "couldn't create connection.\n");
+                        flog(LOG_ERROR, "couldn't create connection.\n");
 
                 // loop through all the session contexts, handle incoming data, flush outgoing data if possible.
                 for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
@@ -157,12 +157,12 @@ class Graphserv
                         ssize_t sz= recv(sockfd, buf, sizeof(buf), 0);
                         if(sz==0)
                         {
-                            printf("client %d: connection closed.\n", sc.clientID);
+                            flog(LOG_INFO, "client %d: connection closed.\n", sc.clientID);
                             clientsToRemove.insert(sc.clientID);
                         }
                         else if(sz<0)
                         {
-                            fprintf(stderr, "i/o error, client %d: %s\n", sc.clientID, strerror(errno));
+                            flog(LOG_ERROR, "i/o error, client %d: %s\n", sc.clientID, strerror(errno));
                             clientsToRemove.insert(sc.clientID);
                         }
                         else
@@ -203,14 +203,14 @@ class Graphserv
                         ssize_t sz= read(ci->getReadFd(), buf, sizeof(buf));
                         if(sz==0)
                         {
-                            printf("core %s has exited?\n", ci->getName().c_str());
+                            flog(LOG_INFO, "core %s has exited?\n", ci->getName().c_str());
                             int status;
                             waitpid(ci->getPid(), &status, 0);  // un-zombify
                             coresToRemove.push_back(ci);
                         }
                         else if(sz<0)
                         {
-                            fprintf(stderr, "i/o error, core %s: %s\n", ci->getName().c_str(), strerror(errno));
+                            flog(LOG_ERROR, "i/o error, core %s: %s\n", ci->getName().c_str(), strerror(errno));
                             coresToRemove.push_back(ci);
                         }
                         else
@@ -317,7 +317,7 @@ class Graphserv
         {
             if(shutdown(sc->sockfd, SHUT_RDWR)<0)
             {
-                perror("shutdown");
+                logerror("shutdown");
                 forceClientDisconnect(sc);
             }
         }
@@ -406,14 +406,14 @@ class Graphserv
         int openListenSocket(int port)
         {
             int listenSocket= socket(AF_INET, SOCK_STREAM, 0);
-            if(listenSocket==-1) { perror("socket()"); return false; }
+            if(listenSocket==-1) { logerror("socket()"); return false; }
 
             // Allow socket descriptor to be reuseable
             int on= 1;
             int rc= setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof(on));
             if (rc < 0)
             {
-                perror("setsockopt() failed");
+                logerror("setsockopt() failed");
                 close(listenSocket);
                 return -1;
             }
@@ -425,14 +425,14 @@ class Graphserv
             sa.sin_port= htons(port);
             if(bind(listenSocket, (sockaddr*)&sa, sizeof(sa))<0)
             {
-                perror("bind()");
+                logerror("bind()");
                 close(listenSocket);
                 return -1;
             }
 
             if(listen(listenSocket, LISTEN_BACKLOG)<0)
             {
-                perror("listen()");
+                logerror("listen()");
                 close(listenSocket);
                 return -1;
             }
@@ -475,13 +475,13 @@ class Graphserv
             int newConnection= accept(socket, 0, 0);
             if(newConnection<0)
             {
-                perror("accept()");
+                logerror("accept()");
                 return 0;
             }
             else
             {
                 // add new connection
-                printf("new connection, type %s, socket=%d\n", (type==CONN_TCP? "TCP": "HTTP"), newConnection);
+                flog(LOG_INFO, "new connection, type %s, socket=%d\n", (type==CONN_TCP? "TCP": "HTTP"), newConnection);
                 return createSession(newConnection, type);
             }
         }
@@ -496,7 +496,7 @@ class Graphserv
             {
                 case CONN_TCP:  newSession= new SessionContext(*this, newID, sock, connType); break;
                 case CONN_HTTP: newSession= new HTTPSessionContext(*this, newID, sock); break;
-                default:        fprintf(stderr, "createSession: unknown connection type %d!\n", connType); return 0;
+                default:        flog(LOG_ERROR, "createSession: unknown connection type %d!\n", connType); return 0;
             }
             sessionContexts.insert( pair<uint32_t,SessionContext*>(newID, newSession) );
             return newSession;
@@ -560,7 +560,8 @@ class Graphserv
                 }
                 else
                 {
-                    fprintf(stderr, "client %d has invalid coreID %d, zeroing.\n", sc.clientID, sc.coreID);
+                    // xxx notify client?
+                    flog(LOG_INFO, "client %d has invalid coreID %d, zeroing.\n", sc.clientID, sc.coreID);
                     sc.coreID= 0;
                 }
             }
@@ -614,14 +615,14 @@ class Graphserv
                 vector<string> words= Cli::splitString(sc.http.requestString.c_str());
                 if(words.size()!=3)     // this does not look like an HTTP request. disconnect the client.
                 {
-                    fprintf(stderr, _("bad HTTP request string, disconnecting.\n"));
+                    flog(LOG_ERROR, _("bad HTTP request string, disconnecting.\n"));
                     sc.forwardStatusline(string(FAIL_STR) + _(" bad HTTP request string.\n"));
                     return;
                 }
                 transform(words[2].begin(), words[2].end(),words[2].begin(), ::toupper);
                 if( (words[2]!="HTTP/1.0") && (words[2]!="HTTP/1.1") )  // accept HTTP/1.1 too, if only for debugging.
                 {
-                    fprintf(stderr, _("unknown HTTP version, disconnecting.\n"));
+                    flog(LOG_ERROR, _("unknown HTTP version, disconnecting.\n"));
                     sc.forwardStatusline(string(FAIL_STR) + _(" unknown HTTP version.\n"));
                     return;
                 }
@@ -649,7 +650,7 @@ class Graphserv
                             unsigned hexChar;
                             if( urilen-i<3 || sscanf(uri+i+1, "%02X", &hexChar)!=1 || !isprint(hexChar) )
                             {
-                                fprintf(stderr, _("i=%d len=%d %s %02X bad hex in request URI, disconnecting\n"), i, urilen, uri+i+1, hexChar);
+                                flog(LOG_ERROR, _("i=%d len=%d %s %02X bad hex in request URI, disconnecting\n"), i, urilen, uri+i+1, hexChar);
                                 sc.forwardStatusline(string(FAIL_STR) + _(" bad hex in request URI.\n"));
                                 return;
                             }
@@ -693,7 +694,7 @@ class Graphserv
                     else
                     {
                         // empty request strings are not valid for http clients. output nothing and disconnect.
-                        fprintf(stderr, _("empty HTTP request string, disconnecting.\n"));
+                        flog(LOG_ERROR, _("empty HTTP request string, disconnecting.\n"));
                         sc.forwardStatusline(string(FAIL_STR) + _(" empty request string.\n"));
                     }
                 }

@@ -28,8 +28,8 @@
 
 #include "clibase.h"
 #include "const.h"
-#include "auth.h"
 #include "utils.h"
+#include "auth.h"
 #include "coreinstance.h"
 #include "session.h"
 #include "servcli.h"
@@ -70,7 +70,7 @@ void CoreInstance::lineFromCore(string &line, class Graphserv &app)
     {
         // a core sent data we didn't ask for. this shouldn't happen.
         if(app.findClient(lastClientID))
-            fprintf(stderr, "CoreInstance '%s', ID %u: lineFromCore(): not expecting anything from this core\n", getName().c_str(), getID());
+            flog(LOG_ERROR, "CoreInstance '%s', ID %u: lineFromCore(): not expecting anything from this core\n", getName().c_str(), getID());
     }
 }
 
@@ -98,7 +98,7 @@ void CoreInstance::flushCommandQ(class Graphserv &app)
 // error handler called because of broken connection or similar. tell app to disconnect this client.
 void SessionContext::writeFailed(int _errno)
 {
-    fprintf(stderr, "client %d: write failed, disconnecting.\n", clientID);
+    flog(LOG_ERROR, "client %d: write failed, disconnecting.\n", clientID);
     app.forceClientDisconnect(this);
 }
 
@@ -192,7 +192,7 @@ CommandStatus ServCli::execute(ServCmd *cmd, vector<string> &words, SessionConte
             sc.forwardStatusline(cmd->getStatusMessage().c_str());
             break;
         default:
-            fprintf(stderr, "ServCli::execute: invalid return type %d\n", cmd->getReturnType());
+            flog(LOG_ERROR, "ServCli::execute: invalid return type %d\n", cmd->getReturnType());
             ret= CMD_ERROR;
             break;
     }
@@ -618,9 +618,28 @@ uint32_t Graphserv::coreIDCounter= 0;
 uint32_t Graphserv::sessionIDCounter= 0;
 
 
+uint32_t logMask= (1<<LOG_ERROR);
 
 
 /////////////////////////////////////////// main ///////////////////////////////////////////
+
+static void printHelp(char *argv[])
+{
+    printf("use: %s [options]\n", argv[0]);
+    printf("options:\n"
+           "    -h              print this text\n"
+           "    -t PORT         listen on PORT for tcp connections [" stringify(DEFAULT_TCP_PORT) "]. zero to disable.\n"
+           "    -H PORT         listen on PORT for http connections [" stringify(DEFAULT_HTTP_PORT) "]. zero to disable.\n"
+           "    -p FILENAME     set htpassword file name [" DEFAULT_HTPASSWD_FILENAME "]\n"
+           "    -g FILENAME     set group file name [" DEFAULT_GROUP_FILENAME "]\n"
+           "    -c FILENAME     set path of GraphCore binary [" DEFAULT_CORE_PATH "]\n"
+           "    -l FLAGS        set logging flags.\n"
+           "                    e: log error messages (default)\n"
+           "                    i: log error and informational messages\n"
+           "                    a: log authentication messages\n"
+           "                    q: quiet mode, don't log anything\n"
+           "\n");
+}
 
 int main(int argc, char *argv[])
 {
@@ -633,23 +652,15 @@ int main(int argc, char *argv[])
 
     // parse the command line.
     char opt;
-    int ret= 0;
-    while( (opt= getopt(argc, argv, "ht:H:p:g:c:"))!=-1 )
+    while( (opt= getopt(argc, argv, "ht:H:p:g:c:l:"))!=-1 )
         switch(opt)
         {
             case '?':
-                ret= 1; // exit with error
+                printHelp(argv);
+                exit(1);
             case 'h':
-                printf("use: %s [options]\n", argv[0]);
-                printf("options:\n"
-                       "    -h              print this text\n"
-                       "    -t PORT         listen on PORT for tcp connections [" stringify(DEFAULT_TCP_PORT) "]. zero to disable.\n"
-                       "    -H PORT         listen on PORT for http connections [" stringify(DEFAULT_HTTP_PORT) "]. zero to disable.\n"
-                       "    -p FILENAME     set htpassword file name [" DEFAULT_HTPASSWD_FILENAME "]\n"
-                       "    -g FILENAME     set group file name [" DEFAULT_GROUP_FILENAME "]\n"
-                       "    -c FILENAME     set path of GraphCore binary [" DEFAULT_CORE_PATH "]\n"
-                       "\n");
-                exit(ret);
+                printHelp(argv);
+                exit(0);
             case 't':
                 tcpPort= atoi(optarg);
                 break;
@@ -664,6 +675,26 @@ int main(int argc, char *argv[])
                 break;
             case 'c':
                 corePath= optarg;
+                break;
+            case 'l':
+                for(int i= 0; optarg[i]; i++) switch(optarg[i])
+                {
+                    case 'i':
+                        logMask|= (1<<LOG_INFO);
+                    case 'e':
+                        logMask|= (1<<LOG_ERROR);
+                        break;
+                    case 'a':
+                        logMask|= (1<<LOG_AUTH);
+                        break;
+                    case 'q':
+                        logMask= 0;
+                        break;
+                    default:
+                        printf("unknown logging verbosity flag -- '%c'\n", optarg[i]);
+                        printHelp(argv);
+                        exit(1);
+                }
                 break;
         }
 
