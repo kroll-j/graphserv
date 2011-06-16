@@ -634,10 +634,11 @@ static void printHelp(char *argv[])
            "    -g FILENAME     set group file name [" DEFAULT_GROUP_FILENAME "]\n"
            "    -c FILENAME     set path of GraphCore binary [" DEFAULT_CORE_PATH "]\n"
            "    -l FLAGS        set logging flags.\n"
-           "                    e: log error messages (default)\n"
-           "                    i: log error and informational messages\n"
-           "                    a: log authentication messages\n"
-           "                    q: quiet mode, don't log anything\n"
+           "                        e: log error messages (default)\n"
+           "                        i: log error and informational messages\n"
+           "                        a: log authentication messages\n"
+           "                        q: quiet mode, don't log anything\n"
+           "                    flags can be combined.\n"
            "\n");
 }
 
@@ -691,7 +692,7 @@ int main(int argc, char *argv[])
                         logMask= 0;
                         break;
                     default:
-                        printf("unknown logging verbosity flag -- '%c'\n", optarg[i]);
+                        printf("unknown logging flag -- '%c'\n", optarg[i]);
                         printHelp(argv);
                         exit(1);
                 }

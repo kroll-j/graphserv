@@ -45,7 +45,7 @@ The code should build and run on 32-Bit Linux and 64-Bit Solaris systems. Care w
 Running GraphServ
 -----------------
 
-By default, GraphServ will look for the GraphCore binary in the subdirectory `graphcore`. Default values for TCP ports and authentication files are also set at compile time. You may want to override these defaults using one of the command line options. In the list below, default values are given in square brackets. ::
+By default, GraphServ will look for the GraphCore binary in the subdirectory `graphcore`. Default values for TCP ports and authentication files are also set at compile time. You may want to override these defaults using one of the command line options. ::
 
 	use: graphserv [options]
 	options:
@@ -55,8 +55,14 @@ By default, GraphServ will look for the GraphCore binary in the subdirectory `gr
 	    -p FILENAME     set htpassword file name [gspasswd.conf]
 	    -g FILENAME     set group file name [gsgroups.conf]
 	    -c FILENAME     set path of GraphCore binary [./graphcore/graphcore]
+	    -l FLAGS        set logging flags. 
+	                    	e: log error messages (default)
+        	            	i: log error and informational messages
+        	            	a: log authentication messages
+        	            	q: quiet mode, don't log anything
+			    flags can be combined.
 
-Before spawning a GraphCore instance, the child process will chdir() to the directory where graphcore resides. Currently, any redirected output will be written to that directory.   
+Before spawning a GraphCore instance, the child process will chdir() to the directory where graphcore resides. Currently, any redirected output will be written to that directory. Server log messages are written to stderr.
 
 
 | 

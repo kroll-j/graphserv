@@ -693,7 +693,7 @@ class Graphserv
                         lineFromClient(transformedURI, sc, timestamp);
                     else
                     {
-                        // empty request strings are not valid for http clients. output nothing and disconnect.
+                        // empty request string received. return information and disconnect.
                         flog(LOG_ERROR, _("empty HTTP request string, disconnecting.\n"));
                         sc.forwardStatusline(format("%s this is the GraphServ HTTP module listening on port %d. protocol-version is %s. %d core instance(s) running, %d client connection(s) active including yours.\n",
                                                     SUCCESS_STR, httpPort, stringify(PROTOCOL_VERSION), coreInstances.size(), sessionContexts.size()));
