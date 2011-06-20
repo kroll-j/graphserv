@@ -40,6 +40,14 @@ enum ConnectionType
 };
 
 
+// log levels for flog(). LOG_CRIT is always printed, other levels can be individually enabled on the command line.
+enum Loglevel
+{
+    LOG_INFO,
+    LOG_ERROR,
+    LOG_AUTH,
+    LOG_CRIT
+};
 
 
 #endif // CONST_H

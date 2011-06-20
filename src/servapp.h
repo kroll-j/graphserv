@@ -13,7 +13,7 @@ class Graphserv
     public:
         Graphserv(int _tcpPort, int _httpPort, const string& htpwFilename, const string& groupFilename, const string& _corePath):
             tcpPort(_tcpPort), httpPort(_httpPort), corePath(_corePath),
-            cli(*this)
+            cli(*this), linesFromClients(0)
         {
             initCoreCommandTable();
 
@@ -176,6 +176,8 @@ class Graphserv
                                 {
                                     if(clientsToRemove.find(sc.clientID)!=clientsToRemove.end())
                                         break;
+
+                                    linesFromClients++;
 
                                     if(sc.connectionType==CONN_HTTP)
                                         lineFromHTTPClient(sc.linebuf, *(HTTPSessionContext*)&sc, time);
@@ -354,11 +356,11 @@ class Graphserv
                         // read data set, then print error message.
                         sc.invalidDatasetStatus= CMD_FAILURE,
                         sc.invalidDatasetMsg= format(_("%s insufficient access level (command needs %s, you have %s)\n"), FAIL_STR,
-                                                     gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]);
+                                                     gAccessLevelNames[al], gAccessLevelNames[sc.accessLevel]);
                     else
                         // forward line as if it came from core so that the http code can do its stuff
                         sc.forwardStatusline(string(FAIL_STR " ") + format(_("insufficient access level (command needs %s, you have %s)\n"),
-                                             gAccessLevelNames[cci->accessLevel], gAccessLevelNames[sc.accessLevel]));
+                                             gAccessLevelNames[al], gAccessLevelNames[sc.accessLevel]));
                 }
             }
             else
@@ -401,6 +403,8 @@ class Graphserv
         ServCli cli;
 
         map<string,Authority*> authorities;
+
+        uint32_t linesFromClients;
 
         // create a reusable socket listening on the given port.
         int openListenSocket(int port)
@@ -703,6 +707,7 @@ class Graphserv
         }
 
         friend class ccInfo;
+        friend class ccServerStats;
 };
 
 #endif // SERVAPP_H

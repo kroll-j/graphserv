@@ -5,14 +5,6 @@
 #ifndef UTILS_H
 #define UTILS_H
 
-enum Loglevel
-{
-    LOG_INFO,
-    LOG_ERROR,
-    LOG_AUTH,
-    LOG_CRIT
-};
-
 extern uint32_t logMask;
 
 void flog(Loglevel level, const char *fmt, ...)

@@ -51,6 +51,8 @@ class CoreInstance: public NonblockWriter
 
             if(path==0) path= corePath.c_str();
 
+            flog(LOG_INFO, "starting core: %s\n", path);
+
             pid= fork();
             if(pid==-1)
             {
