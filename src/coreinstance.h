@@ -102,6 +102,7 @@ class CoreInstance: public NonblockWriter
                 if(fgets(line, 1024, fromCore))
                 {
                     chomp(line);
+                    // check that the protocol-version command succeeded.
                     if(strncmp(SUCCESS_STR, line, strlen(SUCCESS_STR))!=0)
                     {
                         setLastError(_("core replied: ") + string(line));
@@ -109,6 +110,7 @@ class CoreInstance: public NonblockWriter
                     }
                     char *coreProtocolVersion= line + strlen(SUCCESS_STR);
                     while(isspace(*coreProtocolVersion) && *coreProtocolVersion) coreProtocolVersion++;
+                    // check for matching version string.
                     if(strcmp(coreProtocolVersion, stringify(PROTOCOL_VERSION))!=0)
                     {
                         setLastError(string(_("protocol version mismatch (server: ")) +

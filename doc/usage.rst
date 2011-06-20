@@ -160,6 +160,6 @@ The message-body of the response consists of the status line followed by any res
 | 
 | 
 | `GraphServ, GraphCore (C) 2011 Wikimedia Deutschland, written by Johannes Kroll <jkroll at lavabit com>.`
-| `Last update to this text: 2011/06/08`
+| `Last update to this text: 2011/06/16`
 
 

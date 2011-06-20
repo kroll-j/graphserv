@@ -68,6 +68,6 @@ Before spawning a GraphCore instance, the child process will chdir() to the dire
 | 
 | 
 | `GraphServ, GraphCore (C) 2011 Wikimedia Deutschland, written by Johannes Kroll <jkroll at lavabit com>.`
-| `Last update to this text: 2011/06/08`
+| `Last update to this text: 2011/06/16`
 
 
