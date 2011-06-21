@@ -6,7 +6,7 @@ ARCSPERPART=20000
 # server binary
 SERVBIN="../graphserv.dbg"
 # core binary. must use the debug version for list-by-* commands.
-COREBIN="../../graphcore/graphcore.dbg"
+COREBIN="../graphcore/graphcore.dbg"
 # use the example password and group files
 PWFILE="../example-gspasswd.conf"
 GRPFILE="../example-gsgroups.conf"
@@ -17,7 +17,7 @@ NUMARCS=$(( $ARCSPERPART * $CONCURRENCY ))
 
 # build core & server
 echo "building..."
-(make -C.. Debug && make -C../../graphcore Debug) >/dev/null
+(make -C.. Debug && make -C../graphcore Debug) >/dev/null
 if ! [[ -x $SERVBIN ]] || ! [[ -x $COREBIN ]] ; then echo 'Build failed.'; exit 1; fi
 
 # start the server
