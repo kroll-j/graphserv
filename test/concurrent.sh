@@ -6,7 +6,7 @@ ARCSPERPART=20000
 # server binary
 SERVBIN="../graphserv.dbg"
 # core binary. must use the debug version for list-by-* commands.
-COREBIN="../graphcore/graphcore.dbg"
+COREBIN="../../graphcore/graphcore.dbg"
 # use the example password and group files
 PWFILE="../example-gspasswd.conf"
 GRPFILE="../example-gsgroups.conf"
@@ -17,8 +17,15 @@ NUMARCS=$(( $ARCSPERPART * $CONCURRENCY ))
 
 # build core & server
 echo "building..."
-(make -C.. && make -C../graphcore) >/dev/null
+(make -C.. Debug && make -C../../graphcore Debug) >/dev/null
 if ! [[ -x $SERVBIN ]] || ! [[ -x $COREBIN ]] ; then echo 'Build failed.'; exit 1; fi
+
+# start the server
+$SERVBIN -lia -p $TCPPORT -c $COREBIN -p $PWFILE -g $GRPFILE & SERVPID=$! 
+
+# creating random arcs should take long enough for the server to start up, don't sleep.
+#sleep 1
+
 
 if true; then 
 
@@ -31,12 +38,12 @@ echo "creating $NUMARCS random arcs..."
 i=0
 until [[ $i == $NUMARCS ]] ; do 
 	# $RANDOM is 0..32767. multiply to generate something between 0..ffffffff (not uniformly distributed)
-	echo $(( $RANDOM * $RANDOM % $NUMARCS + 1 ))", "$(( $RANDOM * $RANDOM % $NUMARCS + 1 )) >> tmp-arcs
+	echo $(( $RANDOM * $RANDOM % ($NUMARCS/10) + 1 ))", "$(( $RANDOM * $RANDOM % ($NUMARCS/10) + 1 )) >> tmp-arcs
 	let i++
 done
 
 # sort them using graphcore
-(echo 'add-arcs < tmp-arcs'; echo 'list-by-tail 0') | $COREBIN > tmp-arcs-sorted || exit 1
+(echo 'add-arcs < tmp-arcs'; echo 'list-by-tail 0') | $COREBIN | egrep -v '^$' | egrep -v '^OK' > tmp-arcs-sorted || exit 1
 # | grep -v "OK." | egrep -v "^$" 
 
 # break them into pieces
@@ -50,11 +57,7 @@ done
 
 fi
 
-# start the server
-$SERVBIN -lia -p $TCPPORT -c $COREBIN -p $PWFILE -g $GRPFILE & SERVPID=$! 
-
-sleep 1
-
+# check if the server failed to start up.
 ps -p $SERVPID >/dev/null || exit 1
 
 # create test graph
@@ -90,25 +93,30 @@ done
 # wait for all sessions to finish
 wait $PIDLIST
 
+rm f?
+
 (echo "use-graph test";
 echo "list-by-tail 0";
 # wait for empty line.
 while true; do sleep 0.1; if tail -n 1 result-set | egrep "^$" >/dev/null; then exit 0; fi; done) |
 	nc localhost $TCPPORT > result-set
 
-grep -v "OK." result-set | egrep -v "^$" > result-arcs
+grep -v "OK." result-set | egrep -v '^$' > result-arcs
 
 echo "comparing result files with diff..."
 
 # compare result files
 
 if ! diff tmp-arcs-sorted result-arcs >/dev/null ; then 
-	echo "Test FAILED! Result files don't match."; exit 1; 
+	echo "Test FAILED! Result files don't match."
+	echo -n "sorted input arcs: "; sort tmp-arcs-sorted | uniq | wc -l
+	echo -n "      output arcs: "; uniq result-arcs | wc -l
+	exit 1
 fi
 
 echo "Test SUCCEEDED. Result files match."
 
-rm tmp-arcs* result-arcs*
+rm tmp-arcs* result-set result-arcs*
 
 kill $SERVPID
 
