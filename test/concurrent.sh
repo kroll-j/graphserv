@@ -1,5 +1,16 @@
 #!/bin/bash
+# Graph Processor concurrency test script.
+# (c) Wikimedia Deutschland, written by Johannes Kroll in 2011
 
+# this script tests concurrent graph manipulation. 
+# a number of random arcs are created ("input arcs").
+# the input arcs are fed through graphcore, sorting them and removing duplicates ("comparison set").
+# the input arcs are then split into several files.
+# each file is concurrently fed to a GraphCore instance, using several GraphServ sessions.
+# the result set from the core is then compared with the comparison set.
+# the test is successful if the result and comparison sets match.
+
+# the script will run $CONCURRENCY sessions at the same time, adding $ARCSPERPART random arcs each.
 CONCURRENCY=8
 ARCSPERPART=20000
 
@@ -26,12 +37,7 @@ $SERVBIN -lia -p $TCPPORT -c $COREBIN -p $PWFILE -g $GRPFILE & SERVPID=$!
 # creating random arcs should take long enough for the server to start up, don't sleep.
 #sleep 1
 
-
-if true; then 
-
 echo "creating $NUMARCS random arcs..."
-
-#rm tmp-arcs* result-arcs*
 
 # create some random arcs
 [ -f tmp-arcs ] && rm tmp-arcs
@@ -55,8 +61,6 @@ until [[ $i == $NUMARCS ]] ; do
 	let part++
 done
 
-fi
-
 # check if the server failed to start up.
 ps -p $SERVPID >/dev/null || exit 1
 
@@ -68,7 +72,6 @@ RESULT=$(
 	) | nc localhost $TCPPORT )
 
 if ! [[ $RESULT =~ OK.*OK.* ]] ; then echo "couldn't create graph. output:"; echo "$RESULT"; kill $SERVPID; exit 1; fi
-
 
 # fill graph with the generated random data, concurrently, using several sessions
 PIDLIST=""
@@ -93,8 +96,10 @@ done
 # wait for all sessions to finish
 wait $PIDLIST
 
+# remove temporary files
 rm f?
 
+# now, get the result set stitched together from the concurrent sessions
 (echo "use-graph test";
 echo "list-by-tail 0";
 # wait for empty line.
