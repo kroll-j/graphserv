@@ -686,7 +686,7 @@ class Graphserv
                     CoreInstance *ci= findNamedInstance(uriwords[0]);
                     if(!ci)
                     {
-                        sc.forwardStatusline(string(FAIL_STR) + " " + _("No such instance."));
+                        sc.forwardStatusline(string(FAIL_STR) + " " + _("No such instance.\n"));
                         return;
                     }
 
