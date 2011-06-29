@@ -36,7 +36,7 @@ class CoreInstance: public NonblockWriter
 
         void writeFailed(int _errno)
         {
-            logerror("write failed");
+            logerror(_("write failed"));
             // read will return 0, core will be removed.
         }
 
@@ -51,7 +51,7 @@ class CoreInstance: public NonblockWriter
 
             if(path==0) path= corePath.c_str();
 
-            flog(LOG_INFO, "starting core: %s\n", path);
+            flog(LOG_INFO, _("starting core: %s\n"), path);
 
             pid= fork();
             if(pid==-1)
@@ -132,13 +132,13 @@ class CoreInstance: public NonblockWriter
                     {
                         int estatus= WEXITSTATUS(status);
                         setLastError(string(_("child process exited: ")) +
-                                     (estatus==101? "setup failed.":
-                                      estatus==102? string("couldn't exec '") + path + "'.":
-                                      estatus==103? string("couldn't change directory"):
-                                      format("unknown error code %d", estatus)) );
+                                     (estatus==101? _("setup failed."):
+                                      estatus==102? string(_("couldn't exec '")) + path + "'.":
+                                      estatus==103? string(_("couldn't change directory")):
+                                      format(_("unknown error code %d"), estatus)) );
                     }
                     else
-                       setLastError("child process terminated");
+                       setLastError(_("child process terminated"));
                     return false;
                 }
             }

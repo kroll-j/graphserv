@@ -70,7 +70,7 @@ void CoreInstance::lineFromCore(string &line, class Graphserv &app)
     {
         // a core sent data we didn't ask for. this shouldn't happen.
         if(app.findClient(lastClientID))
-            flog(LOG_ERROR, "CoreInstance '%s', ID %u: lineFromCore(): not expecting anything from this core\n", getName().c_str(), getID());
+            flog(LOG_ERROR, _("CoreInstance '%s', ID %u: lineFromCore(): not expecting anything from this core\n"), getName().c_str(), getID());
     }
 }
 
@@ -98,7 +98,7 @@ void CoreInstance::flushCommandQ(class Graphserv &app)
 // error handler called because of broken connection or similar. tell app to disconnect this client.
 void SessionContext::writeFailed(int _errno)
 {
-    flog(LOG_ERROR, "client %d: write failed, disconnecting.\n", clientID);
+    flog(LOG_ERROR, _("client %d: write failed, disconnecting.\n"), clientID);
     app.forceClientDisconnect(this);
 }
 
@@ -115,7 +115,7 @@ void HTTPSessionContext::forwardStatusline(const string& line)
     if(replyWords.empty())
     {
         // this shouldn't happen.
-        httpWriteErrorResponse(500, "Internal Server Error", "Received empty status line from core. Please report.");
+        httpWriteErrorResponse(500, "Internal Server Error", _("Received empty status line from core. Please report."));
         app.shutdownClient(this);
     }
     else
@@ -148,7 +148,7 @@ void HTTPSessionContext::forwardStatusline(const string& line)
 
         // if there's nothing left to forward, mark client to be disconnected.
         if(!hasDataset)
-            flog(LOG_INFO, "client %d: conversation finished.\n", clientID),
+            flog(LOG_INFO, _("client %d: conversation finished.\n"), clientID),
             conversationFinished= true;
     }
 }
@@ -193,7 +193,7 @@ CommandStatus ServCli::execute(ServCmd *cmd, vector<string> &words, SessionConte
             sc.forwardStatusline(cmd->getStatusMessage().c_str());
             break;
         default:
-            flog(LOG_ERROR, "ServCli::execute: invalid return type %d\n", cmd->getReturnType());
+            flog(LOG_ERROR, _("ServCli::execute: invalid return type %d\n"), cmd->getReturnType());
             ret= CMD_ERROR;
             break;
     }
@@ -629,12 +629,12 @@ uint32_t Graphserv::sessionIDCounter= 0;
 uint32_t logMask= (1<<LOG_ERROR);
 
 
-/////////////////////////////////////////// main ///////////////////////////////////////////
 
-static void printHelp(char *argv[])
+static void printHelp(const char *comm= "graphserv")
 {
-    printf("use: %s [options]\n", argv[0]);
-    printf("options:\n"
+    printf(_("use: %s [options]\n"), comm);
+    printf(_(
+           "options:\n"
            "    -h              print this text\n"
            "    -t PORT         listen on PORT for tcp connections [" stringify(DEFAULT_TCP_PORT) "]. zero to disable.\n"
            "    -H PORT         listen on PORT for http connections [" stringify(DEFAULT_HTTP_PORT) "]. zero to disable.\n"
@@ -647,8 +647,23 @@ static void printHelp(char *argv[])
            "                        a: log authentication messages\n"
            "                        q: quiet mode, don't log anything\n"
            "                    flags can be combined.\n"
-           "\n");
+           "\n"));
 }
+
+// helper function for converting a string from the commandline to an unsigned int.
+// will print help and exit when invalid input is found.
+static unsigned cmdlnParseUint(char *str)
+{
+    if(!Cli::isValidUint(str))
+    {
+        printf(_("invalid argument -- '%s'\n"), str);
+        printHelp();
+        exit(1);
+    }
+    return atoi(str);
+}
+
+/////////////////////////////////////////// main ///////////////////////////////////////////
 
 int main(int argc, char *argv[])
 {
@@ -665,16 +680,16 @@ int main(int argc, char *argv[])
         switch(opt)
         {
             case '?':
-                printHelp(argv);
+                printHelp(argv[0]);
                 exit(1);
             case 'h':
-                printHelp(argv);
+                printHelp(argv[0]);
                 exit(0);
             case 't':
-                tcpPort= atoi(optarg);
+                tcpPort= cmdlnParseUint(optarg);
                 break;
             case 'H':
-                httpPort= atoi(optarg);
+                httpPort= cmdlnParseUint(optarg);
                 break;
             case 'p':
                 htpwFilename= optarg;
@@ -690,6 +705,7 @@ int main(int argc, char *argv[])
                 {
                     case 'i':
                         logMask|= (1<<LOG_INFO);
+                        // fall through
                     case 'e':
                         logMask|= (1<<LOG_ERROR);
                         break;
@@ -700,8 +716,8 @@ int main(int argc, char *argv[])
                         logMask= 0;
                         break;
                     default:
-                        printf("unknown logging flag -- '%c'\n", optarg[i]);
-                        printHelp(argv);
+                        printf(_("unknown logging flag -- '%c'\n"), optarg[i]);
+                        printHelp(argv[0]);
                         exit(1);
                 }
                 break;

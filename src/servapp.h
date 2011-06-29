@@ -119,12 +119,12 @@ class Graphserv
                             // a file descriptor is bad, find out which and remove the client or core.
                             for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
                                 if( !i->second->writeBufferEmpty() && fcntl(i->second->sockfd, F_GETFL)==-1 )
-                                    flog(LOG_ERROR, "bad fd, removing client %d.\n", i->second->clientID),
+                                    flog(LOG_ERROR, _("bad fd, removing client %d.\n"), i->second->clientID),
                                     forceClientDisconnect(i->second);
                             for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++ )
                                 if( fcntl(i->second->getReadFd(), F_GETFL)==-1 ||
                                     (!i->second->writeBufferEmpty() && fcntl(i->second->getWriteFd(), F_GETFL)==-1) )
-                                    flog(LOG_ERROR, "bad fd, removing core %d.\n", i->second->getID()),
+                                    flog(LOG_ERROR, _("bad fd, removing core %d.\n"), i->second->getID()),
                                     removeCoreInstance(i->second);
                             continue;
 
@@ -139,11 +139,11 @@ class Graphserv
 
                 if(listenSocket && FD_ISSET(listenSocket, &readfds))
                     if(!acceptConnection(listenSocket, CONN_TCP))
-                        flog(LOG_ERROR, "couldn't create connection.\n");
+                        flog(LOG_ERROR, _("couldn't create connection.\n"));
 
                 if(httpSocket && FD_ISSET(httpSocket, &readfds))
                     if(!acceptConnection(httpSocket, CONN_HTTP))
-                        flog(LOG_ERROR, "couldn't create connection.\n");
+                        flog(LOG_ERROR, _("couldn't create connection.\n"));
 
                 // loop through all the session contexts, handle incoming data, flush outgoing data if possible.
                 for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
@@ -157,12 +157,12 @@ class Graphserv
                         ssize_t sz= recv(sockfd, buf, sizeof(buf), 0);
                         if(sz==0)
                         {
-                            flog(LOG_INFO, "client %d: connection closed%s.\n", sc.clientID, sc.shutdownTime? "": " by peer");
+                            flog(LOG_INFO, _("client %d: connection closed%s.\n"), sc.clientID, sc.shutdownTime? "": _(" by peer"));
                             clientsToRemove.insert(sc.clientID);
                         }
                         else if(sz<0)
                         {
-                            flog(LOG_ERROR, "i/o error, client %d: %s\n", sc.clientID, strerror(errno));
+                            flog(LOG_ERROR, _("i/o error, client %d: %s\n"), sc.clientID, strerror(errno));
                             clientsToRemove.insert(sc.clientID);
                         }
                         else
@@ -721,7 +721,9 @@ class Graphserv
                     {
                         // empty request string received. return information and disconnect.
                         flog(LOG_ERROR, _("empty HTTP request string, disconnecting.\n"));
-                        sc.forwardStatusline(format("%s this is the GraphServ HTTP module listening on port %d. protocol-version is %s. %d core instance(s) running, %d client connection(s) active including yours.\n",
+                        sc.forwardStatusline(format(_("%s this is the GraphServ HTTP module listening on port %d. "
+                                                      "protocol-version is %s. %d core instance(s) running, "
+                                                      "%d client connection(s) active including yours.\n"),
                                                     SUCCESS_STR, httpPort, stringify(PROTOCOL_VERSION), coreInstances.size(), sessionContexts.size()));
                     }
                 }

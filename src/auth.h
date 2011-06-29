@@ -65,7 +65,11 @@ class PasswordAuth: public Authority
     {
         char line[1024];
         FILE *f= fopen(htpasswdFilename.c_str(), "r");
-        if(!f) { logerror(("couldn't open " + groupFilename).c_str()); return false; }
+        if(!f)
+        {
+            flog(LOG_CRIT, _("couldn't open %s: %s\n"), htpasswdFilename.c_str(), strerror(errno));
+            exit(1);
+        }
         map<string,userInfo> newUsers;
         // for each line in htpassword file
         while(fgets(line, 1024, f))
@@ -74,7 +78,7 @@ class PasswordAuth: public Authority
             vector<string> fields= splitLine(line);
             if(fields.size()!=2 || fields[0].empty() || fields[1].size()!=13)
             {
-                flog(LOG_ERROR, "PasswordAuth: invalid line in htpasswd file\n");
+                flog(LOG_ERROR, _("PasswordAuth: invalid line in htpasswd file\n"));
                 return false;
             }
             userInfo ui= { fields[1], ACCESS_READ };
@@ -82,7 +86,11 @@ class PasswordAuth: public Authority
         }
 
         f= fopen(groupFilename.c_str(), "r");
-        if(!f) { logerror(("couldn't open " + groupFilename).c_str()); return false; }
+        if(!f)
+        {
+            flog(LOG_CRIT, _("couldn't open %s: %s\n"), groupFilename.c_str(), strerror(errno));
+            exit(1);
+        }
         // for each line in group file
         while(fgets(line, 1024, f))
         {
@@ -90,7 +98,7 @@ class PasswordAuth: public Authority
             vector<string> fields= splitLine(line);
             if(fields.size()!=4 || fields[0].empty())
             {
-                flog(LOG_ERROR, "PasswordAuth: invalid line in group file\n");
+                flog(LOG_ERROR, _("PasswordAuth: invalid line in group file\n"));
                 return false;
             }
             AccessLevel level;
@@ -99,7 +107,7 @@ class PasswordAuth: public Authority
             else if(fields[0]==gAccessLevelNames[ACCESS_ADMIN]) level= ACCESS_ADMIN;
             else
             {
-                flog(LOG_ERROR, "PasswordAuth: invalid access level '%s' in group file\n", fields[0].c_str());
+                flog(LOG_ERROR, _("PasswordAuth: invalid access level '%s' in group file\n"), fields[0].c_str());
                 return false;
             }
 
@@ -128,10 +136,10 @@ class PasswordAuth: public Authority
         bool needRefresh= false;
         // check if any of the credential files have changed since last refresh.
         if(stat(htpasswdFilename.c_str(), &st)<0)
-        { logerror("couldn't stat passwdfile"); return; }
+        { logerror(_("couldn't stat passwdfile")); return; }
         if(st.st_mtime>=lastCacheRefresh) needRefresh= true;
         else if(stat(groupFilename.c_str(), &st)<0)
-        { logerror("couldn't stat groupfile"); return; }
+        { logerror(_("couldn't stat groupfile")); return; }
         if(st.st_mtime>=lastCacheRefresh || needRefresh)
         {
             // something has changed, or we didn't read the files yet.
@@ -144,7 +152,9 @@ class PasswordAuth: public Authority
     public:
         PasswordAuth(const string& _htpasswdFilename, const string& _groupFilename):
             htpasswdFilename(_htpasswdFilename), groupFilename(_groupFilename), lastCacheRefresh(0)
-        { }
+        {
+            refreshFileCache();
+        }
 
         string getName() { return "password"; }
 
@@ -155,21 +165,21 @@ class PasswordAuth: public Authority
 
             vector<string> cred= splitLine(credentials);
             if(cred.size()!=2 || cred[0].empty()||cred[1].empty())
-            { flog(LOG_AUTH, "PasswordAuth: invalid credentials.\n"); return false; }
+            { flog(LOG_AUTH, _("PasswordAuth: invalid credentials.\n")); return false; }
 
             map<string,userInfo>::iterator it= users.find(cred[0]);
             if(it==users.end())
-            { flog(LOG_AUTH, "PasswordAuth: invalid user.\n"); return false; }
+            { flog(LOG_AUTH, _("PasswordAuth: invalid user.\n")); return false; }
 
             // crypt() the password and compare to stored hash.
             char *crypted= crypt(cred[1].c_str(), it->second.hash.c_str());
             if(crypted != it->second.hash)
             {
-                flog(LOG_AUTH, "PasswordAuth: failure, user %s\n", it->first.c_str());
+                flog(LOG_AUTH, _("PasswordAuth: failure, user %s\n"), it->first.c_str());
                 return false;
             }
 
-            flog(LOG_AUTH, "PasswordAuth: success, user %s, level %s\n", it->first.c_str(), gAccessLevelNames[it->second.accessLevel]);
+            flog(LOG_AUTH, _("PasswordAuth: success, user %s, level %s\n"), it->first.c_str(), gAccessLevelNames[it->second.accessLevel]);
 
             level= it->second.accessLevel;
 

@@ -18,9 +18,9 @@ void flog(Loglevel level, const char *fmt, ...)
     t= time(0);
     tmp= localtime(&t);
     if(!tmp)
-        strcpy(timeStr, "localtime failed");
+        strcpy(timeStr, _("localtime failed"));
     else if(strftime(timeStr, sizeof(timeStr), "%F %H:%M.%S", tmp)==0)
-        strcpy(timeStr, "strftime returned 0");
+        strcpy(timeStr, _("strftime returned 0"));
 
     fprintf(stderr, "[%s] ", timeStr);
     va_list ap;
@@ -85,7 +85,7 @@ inline CommandStatus getStatusCode(const string& msg)
     for(unsigned i= 0; i<sizeof(statusMsgs)/sizeof(statusMsgs[0]); i++)
         if(statusMsgs[i]==msg)
             return (CommandStatus)i;
-    flog(LOG_ERROR, "getStatusCode called with bad string %s. Please report this bug.\n", msg.c_str());
+    flog(LOG_ERROR, _("getStatusCode called with bad string %s. Please report this bug.\n"), msg.c_str());
     return CMD_FAILURE;
 }
 
