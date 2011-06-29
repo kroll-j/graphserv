@@ -679,25 +679,30 @@ class Graphserv
                 // split the string: /corename/command -> corename, command
                 vector<string> uriwords= Cli::splitString(transformedURI.c_str(), "/");
 
-                if(uriwords.size()==2)
+                if(uriwords.size()>=2)
                 {
+                    string coreName= uriwords[0],
+                           command= transformedURI.substr(coreName.size()+1, transformedURI.size()-coreName.size()-1);
+
+//                    flog(LOG_INFO, "corename: '%s' command: '%s'\n", coreName.c_str(), command.c_str());
+
                     // immediately connect the client to the core named in the request string,
                     // then execute the requested command.
-                    CoreInstance *ci= findNamedInstance(uriwords[0]);
+                    CoreInstance *ci= findNamedInstance(coreName);
                     if(!ci)
                     {
                         sc.forwardStatusline(string(FAIL_STR) + " " + _("No such instance.\n"));
                         return;
                     }
 
-                    if(lineIndicatesDataset(uriwords[1]))
+                    if(lineIndicatesDataset(command))
                     {
                         sc.forwardStatusline(string(FAIL_STR) + _(" data sets not allowed in HTTP GET requests.\n"));
                         return;
                     }
 
                     sc.coreID= ci->getID();
-                    lineFromClient(uriwords[1] + '\n', sc, timestamp);
+                    lineFromClient(command, sc, timestamp);
                 }
                 else
                 {
