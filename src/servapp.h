@@ -157,7 +157,7 @@ class Graphserv
                         ssize_t sz= recv(sockfd, buf, sizeof(buf), 0);
                         if(sz==0)
                         {
-                            flog(LOG_INFO, "client %d: connection closed.\n", sc.clientID);
+                            flog(LOG_INFO, "client %d: connection closed%s.\n", sc.clientID, sc.shutdownTime? "": " by peer");
                             clientsToRemove.insert(sc.clientID);
                         }
                         else if(sz<0)
@@ -247,7 +247,10 @@ class Graphserv
                         ((HTTPSessionContext*)sc)->conversationFinished &&
                         sc->writeBufferEmpty() &&
                         ((ci= findInstance(sc->coreID))==NULL || ci->hasDataForClient(sc->clientID)==false) )
-                        shutdownClient(sc);
+                    {
+                        if(!sc->shutdownTime)
+                            shutdownClient(sc);
+                    }
                 }
             }
 
@@ -317,11 +320,13 @@ class Graphserv
         // shut down the client socket. disconnect will happen in select loop when read returns zero.
         void shutdownClient(SessionContext *sc)
         {
+            flog(LOG_INFO, "shutting down session %d.\n", sc->clientID);
             if(shutdown(sc->sockfd, SHUT_RDWR)<0)
             {
                 logerror("shutdown");
                 forceClientDisconnect(sc);
             }
+            sc->shutdownTime= getTime();
         }
 
         // mark client connection to be forcefully broken.
@@ -354,12 +359,12 @@ class Graphserv
                 {
                     if(hasDataSet)
                         // read data set, then print error message.
-                        sc.invalidDatasetStatus= CMD_FAILURE,
-                        sc.invalidDatasetMsg= format(_("%s insufficient access level (command needs %s, you have %s)\n"), FAIL_STR,
+                        sc.invalidDatasetStatus= CMD_ACCESSDENIED,
+                        sc.invalidDatasetMsg= format(_("%s insufficient access level (command needs %s, you have %s)\n"), DENIED_STR,
                                                      gAccessLevelNames[al], gAccessLevelNames[sc.accessLevel]);
                     else
                         // forward line as if it came from core so that the http code can do its stuff
-                        sc.forwardStatusline(string(FAIL_STR " ") + format(_("insufficient access level (command needs %s, you have %s)\n"),
+                        sc.forwardStatusline(string(DENIED_STR " ") + format(_("insufficient access level (command needs %s, you have %s)\n"),
                                              gAccessLevelNames[al], gAccessLevelNames[sc.accessLevel]));
                 }
             }
@@ -661,9 +666,6 @@ class Graphserv
                             transformedURI+= (char)hexChar;
                             i+= 2;
                             break;
-                        case ':':
-                            sc.forwardStatusline(string(FAIL_STR) + _(" data sets not allowed in HTTP GET requests.\n"));
-                            return;
                         case '/':
                             // remove first forward slash.
                             if(i==0) break;
@@ -687,14 +689,29 @@ class Graphserv
                         sc.forwardStatusline(string(FAIL_STR) + " " + _("No such instance."));
                         return;
                     }
+
+                    if(lineIndicatesDataset(uriwords[1]))
+                    {
+                        sc.forwardStatusline(string(FAIL_STR) + _(" data sets not allowed in HTTP GET requests.\n"));
+                        return;
+                    }
+
                     sc.coreID= ci->getID();
                     lineFromClient(uriwords[1] + '\n', sc, timestamp);
                 }
                 else
                 {
                     if(Cli::splitString(transformedURI.c_str()).size())
+                    {
+                        if(lineIndicatesDataset(transformedURI))
+                        {
+                            sc.forwardStatusline(string(FAIL_STR) + _(" data sets not allowed in HTTP GET requests.\n"));
+                            return;
+                        }
+
                         // try to execute the request as one command.
                         lineFromClient(transformedURI, sc, timestamp);
+                    }
                     else
                     {
                         // empty request string received. return information and disconnect.

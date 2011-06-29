@@ -21,6 +21,7 @@ struct SessionContext: public NonblockWriter
     // the data set must be read and discarded.
     CommandStatus invalidDatasetStatus;
     string invalidDatasetMsg;   // the status line to send after invalid data set has been read
+    double shutdownTime;        // time when shutdown was called on the socket, or 0 if the connection is running.
 
     // some statistics about this connection. currently mostly used for debugging.
     struct Stats
@@ -48,7 +49,8 @@ struct SessionContext: public NonblockWriter
 
 
     SessionContext(class Graphserv &_app, uint32_t cID, int sock, ConnectionType connType= CONN_TCP):
-        clientID(cID), accessLevel(ACCESS_READ), connectionType(connType), coreID(0), sockfd(sock), app(_app), chokeTime(0), invalidDatasetStatus(CMD_SUCCESS)
+        clientID(cID), accessLevel(ACCESS_READ), connectionType(connType), coreID(0), sockfd(sock), app(_app),
+        chokeTime(0), invalidDatasetStatus(CMD_SUCCESS), shutdownTime(0)
     {
         setWriteFd(sockfd);
     }
@@ -125,7 +127,7 @@ struct HTTPSessionContext: public SessionContext
     {
 //        writef("<http><head><title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>\n", title.c_str(), title.c_str(), description.c_str());
 //        write(title + "\n" + description + "\n");
-        write(description + "\n");
+        write(description);
     }
 
     void httpWriteErrorResponse(int code, const string &title, const string &description, const string &optionalField= "")
