@@ -601,6 +601,42 @@ class ccHelp: public ServCmd_RTOther
 
 };
 
+#if 0
+// server-info command
+class ccServerInfo: public ServCmd_RTOther
+{
+    public:
+        string getName() { return "server-info"; }
+        string getSynopsis() { return getName(); }
+        string getHelpText() { return _("get information on the server."); }
+        AccessLevel getAccessLevel() { return ACCESS_READ; }
+
+        ccServerInfo()
+        { }
+
+        CommandStatus execute(vector<string> words, Graphserv &app, SessionContext &sc)
+        {
+            if(words.size()!=1)
+            {
+                syntaxError();
+                sc.forwardStatusline(lastStatusMessage);
+                return CMD_FAILURE;
+            }
+
+            cliSuccess(":\n");
+            sc.forwardStatusline(lastStatusMessage);
+
+            sc.forwardDataset("ProtocolVersion," stringify(PROTOCOL_VERSION));
+
+
+            sc.forwardDataset("\n");
+
+            return CMD_SUCCESS;
+        }
+
+};
+#endif
+
 ServCli::ServCli(Graphserv &_app): app(_app)
 {
     // register server commands.
@@ -617,6 +653,7 @@ ServCli::ServCli(Graphserv &_app): app(_app)
     addCommand(new ccServerStats());
     addCommand(new ccProtocolVersion());
     addCommand(new ccQuit());
+//    addCommand(new ccServerInfo());
 }
 
 
