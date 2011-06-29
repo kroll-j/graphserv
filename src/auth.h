@@ -153,7 +153,8 @@ class PasswordAuth: public Authority
         PasswordAuth(const string& _htpasswdFilename, const string& _groupFilename):
             htpasswdFilename(_htpasswdFilename), groupFilename(_groupFilename), lastCacheRefresh(0)
         {
-            refreshFileCache();
+            readCredentialFiles();
+            lastCacheRefresh= time(0);
         }
 
         string getName() { return "password"; }

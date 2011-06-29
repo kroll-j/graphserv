@@ -527,6 +527,7 @@ class Graphserv
         // handle a line of text arriving from a client.
         void lineFromClient(string line, SessionContext &sc, double timestamp)
         {
+            if(line.rfind('\n')!=line.size()-1) line.append("\n");
             sc.stats.linesSent++;
             sc.stats.bytesSent+= line.length();
 
