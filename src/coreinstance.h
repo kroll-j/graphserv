@@ -203,6 +203,8 @@ class CoreInstance: public NonblockWriter
         // true if this core is running a command for this client or has a command for this client in its queue.
         bool hasDataForClient(uint32_t clientID)
         {
+//            flog(LOG_INFO, "hasDataForClient: isclientid %d, expectingReply %d, expectingDataset %d, findLastClientCommand(clientID) %d\n",
+//                 lastClientID==clientID, expectingReply, expectingDataset, findLastClientCommand(clientID));
             return (lastClientID==clientID && (expectingReply||expectingDataset)) || findLastClientCommand(clientID);
         }
 

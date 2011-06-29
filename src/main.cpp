@@ -54,7 +54,7 @@ void CoreInstance::lineFromCore(string &line, class Graphserv &app)
     if(expectingReply)
     {
         expectingReply= false;
-        if(line.find(":")!=string::npos)
+        if(lineIndicatesDataset(line))
             expectingDataset= true;         // save flag to determine when a command is finished.
         if(sc)
             sc->forwardStatusline(line);    // virtual fn does http-specific stuff
@@ -120,7 +120,7 @@ void HTTPSessionContext::forwardStatusline(const string& line)
     }
     else
     {
-        bool hasDataset= statuslineIndicatesDataset(line);
+        bool hasDataset= lineIndicatesDataset(line);
         string headerStatusLine= "X-GraphProcessor: " + line;
 
         switch(getStatusCode(replyWords[0]))
@@ -148,6 +148,7 @@ void HTTPSessionContext::forwardStatusline(const string& line)
 
         // if there's nothing left to forward, mark client to be disconnected.
         if(!hasDataset)
+            flog(LOG_INFO, "client %d: conversation finished.\n", clientID),
             conversationFinished= true;
     }
 }
@@ -577,7 +578,7 @@ class ccHelp: public ServCmd_RTOther
                     sc.forwardDataset("# " + cmd->getSynopsis() + "\n" +
                                       "# " + cmd->getHelpText() + "\n\n");
                 }
-                else
+                else if(app.findInstance(sc.coreID))
                 {
                     // forward the command to the core
                     string line;
@@ -586,6 +587,12 @@ class ccHelp: public ServCmd_RTOther
                         line+= " ";
                     line+= "\n";
                     app.sendCoreCommand(sc, line, false, &words);
+                }
+                else
+                {
+                    // no server command and not connected, forward error message.
+                    cliFailure(_("no such server command and not connected to a core instance.\n"));
+                    sc.forwardStatusline(lastStatusMessage);
                 }
             }
 

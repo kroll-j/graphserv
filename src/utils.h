@@ -90,18 +90,6 @@ inline CommandStatus getStatusCode(const string& msg)
 }
 
 
-// check whether a status line indicates that a data set will follow.
-static bool statuslineIndicatesDataset(const string& line)
-{
-    size_t pos= line.find(':');
-    if(pos==string::npos) return false;
-    for(; pos<line.size(); pos++)
-        if(!isspace(line[pos])) return false;
-    return true;
-}
-
-
-
 
 // base class for handling buffered writes to a non-blocking fd.
 class NonblockWriter
