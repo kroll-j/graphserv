@@ -205,7 +205,7 @@ class Graphserv
                         ssize_t sz= read(ci->getReadFd(), buf, sizeof(buf));
                         if(sz==0)
                         {
-                            flog(LOG_INFO, "core %s has exited\n", ci->getName().c_str());
+                            flog(LOG_INFO, "core %s (ID %u, pid %d) has exited\n", ci->getName().c_str(), ci->getID(), (int)ci->getPid());
                             int status;
                             waitpid(ci->getPid(), &status, 0);  // un-zombify
                             coresToRemove.push_back(ci);
@@ -275,18 +275,19 @@ class Graphserv
         }
 
         // find a named instance.
-        CoreInstance *findNamedInstance(string name)
+        CoreInstance *findNamedInstance(string name, bool onlyRunning= true)
         {
             for(map<uint32_t,CoreInstance*>::iterator it= coreInstances.begin(); it!=coreInstances.end(); it++)
-                if(it->second->getName()==name) return it->second;
+                if( it->second->getName()==name && (onlyRunning? it->second->isRunning(): true) )
+                    return it->second;
             return 0;
         }
 
         // find an instance by ID (faster).
-        CoreInstance *findInstance(uint32_t ID)
+        CoreInstance *findInstance(uint32_t ID, bool onlyRunning= true)
         {
             map<uint32_t,CoreInstance*>::iterator it= coreInstances.find(ID);
-            if(it!=coreInstances.end()) return it->second;
+            if( it!=coreInstances.end() && (onlyRunning? it->second->isRunning(): true) ) return it->second;
             return 0;
         }
 
@@ -601,7 +602,7 @@ class Graphserv
                 else cli.execute(cmd, words, sc);
             }
             // if connected, forward the command to the core
-            else if(sc.coreID)
+            else if(findInstance(sc.coreID))
                 sendCoreCommand(sc, line, hasDataSet, &words);
             // no server command and not connected. no such command.
             else

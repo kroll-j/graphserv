@@ -276,7 +276,7 @@ class ccUseGraph: public ServCmd_RTVoid
                 return CMD_FAILURE;
             }
             // disconnecting from a core, or switching instances, might be implemented later.
-            if(sc.coreID) { cliFailure(_("already connected. switching instances is not currently supported.\n")); return CMD_FAILURE; }
+            if(app.findInstance(sc.coreID)) { cliFailure(_("already connected. switching instances is not currently supported.\n")); return CMD_FAILURE; }
             CoreInstance *core= app.findNamedInstance(words[1]);
             if(!core) { cliFailure(_("no such instance.\n")); return CMD_FAILURE; }
             sc.coreID= core->getID();
@@ -303,12 +303,13 @@ class ccDropGraph: public ServCmd_RTVoid
             }
             CoreInstance *core= app.findNamedInstance(words[1]);
             if(!core) { cliNone(_("no such instance.\n")); return CMD_FAILURE; }
-            if(kill(core->getPid(), SIGTERM)<0)
+            if(!core->terminate())
             {
                 cliFailure(_("couldn't kill the process. %s\n"), strerror(errno));
                 return CMD_FAILURE;
             }
             cliSuccess(_("killed pid %d.\n"), (int)core->getPid());
+//  we shouldn't block here, waiting for the child is done in the select loop.
 //            int status;
 //            waitpid(core->getPid(), &status, 0);
 //            app.removeCoreInstance(core);
@@ -337,7 +338,8 @@ class ccListGraphs: public ServCmd_RTOther
             sc.forwardStatusline(lastStatusMessage);
             map<uint32_t,CoreInstance*>& cores= app.getCoreInstances();
             for(map<uint32_t,CoreInstance*>::iterator it= cores.begin(); it!=cores.end(); it++)
-                sc.forwardDataset(it->second->getName() + "\n");
+                if(it->second->isRunning())
+                    sc.forwardDataset(it->second->getName() + "\n");
             sc.forwardDataset("\n");
             return CMD_SUCCESS;
         }
@@ -391,7 +393,12 @@ class ccServerStats: public ServCmd_RTOther
             cliSuccess(_("server info:\n"));
             sc.forwardStatusline(lastStatusMessage);
             // this currently just outputs the minimal info: number of cores. should return more useful info.
-            sc.forwardDataset(format("NCores,%zu\n", app.getCoreInstances().size()));
+            map<uint32_t,CoreInstance*>& cores= app.getCoreInstances();
+            size_t runningCores= 0;
+            for(map<uint32_t,CoreInstance*>::iterator it= cores.begin(); it!=cores.end(); it++)
+                if(it->second->isRunning())
+                    runningCores++;
+            sc.forwardDataset(format("NCores,%zu\n", runningCores));
             sc.forwardDataset(format("TotalLinesFromClients,%u\n", app.linesFromClients));
             sc.forwardDataset("\n");
             return CMD_SUCCESS;
@@ -484,6 +491,7 @@ class ccInfo: public ServCmd_RTOther
             {
                 CoreInstance *ci= it->second;
                 sc.writef("Core %d:\n", ci->getID());
+                sc.writef("  running: %s\n", ci->isRunning()? "true": "false");
                 sc.writef("  queue size: %u\n", ci->commandQ.size());
                 sc.writef("  bytes in write buffer: %u\n", ci->getWritebufferSize());
                 sc.writef("\n");

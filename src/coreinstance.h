@@ -30,7 +30,8 @@ class CoreInstance: public NonblockWriter
         string linebuf;     // data read from core gets buffered here.
 
         CoreInstance(uint32_t _id, const string& _corePath):
-            instanceID(_id), lastClientID(0), expectingReply(false), expectingDataset(false), corePath(_corePath)
+            instanceID(_id), lastClientID(0), expectingReply(false), expectingDataset(false), corePath(_corePath),
+            processRunning(false)
         {
         }
 
@@ -120,6 +121,7 @@ class CoreInstance: public NonblockWriter
                         return false;
                     }
                     setWriteFd(pipeToCore[1]);
+                    processRunning= true;
                     return true;
                 }
                 else    // fgets() failed
@@ -151,7 +153,7 @@ class CoreInstance: public NonblockWriter
 
         uint32_t getID() { return instanceID; }
         string getName() { return (name.length()? name: format("Core%02u", instanceID)); }
-        void setName(string nm) { name= nm; }
+        void setName(string nm) { name= nm; }   // must *not* check for validity of name.
         pid_t getPid() { return pid; }
         int getReadFd() { return pipeFromCore[0]; }
         int getWriteFd() { return pipeToCore[1]; }
@@ -211,6 +213,18 @@ class CoreInstance: public NonblockWriter
         // handle a line of text which was sent from the core process.
         void lineFromCore(string &line, class Graphserv &app);
 
+        // whether the process is running. false means it has not started yet or was terminated.
+        bool isRunning() { return processRunning; }
+
+        // terminate process. main loop will be notified of termination.
+        bool terminate()
+        {
+            if(kill(pid, SIGTERM)<0)
+                return false;
+            processRunning= false;
+            return true;
+        }
+
     private:
         uint32_t instanceID;
         string lastError;
@@ -229,6 +243,8 @@ class CoreInstance: public NonblockWriter
         bool expectingDataset;  //          ''         a data set from core
 
         string corePath;
+
+        bool processRunning;
 
         friend class ccInfo;
 };
