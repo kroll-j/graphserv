@@ -309,6 +309,8 @@ class ccDropGraph: public ServCmd_RTVoid
                 return CMD_FAILURE;
             }
             cliSuccess(_("killed pid %d.\n"), (int)core->getPid());
+            int status;
+            waitpid(core->getPid(), &status, 0);
             app.removeCoreInstance(core);
             return CMD_SUCCESS;
         }
