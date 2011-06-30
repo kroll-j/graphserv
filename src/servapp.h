@@ -205,7 +205,7 @@ class Graphserv
                         ssize_t sz= read(ci->getReadFd(), buf, sizeof(buf));
                         if(sz==0)
                         {
-                            flog(LOG_INFO, "core %s has exited?\n", ci->getName().c_str());
+                            flog(LOG_INFO, "core %s has exited\n", ci->getName().c_str());
                             int status;
                             waitpid(ci->getPid(), &status, 0);  // un-zombify
                             coresToRemove.push_back(ci);
