@@ -255,6 +255,7 @@ class CoreInstance: public NonblockWriter
         bool processRunning;
 
         friend class ccInfo;
+        friend class ccShutdown;
 };
 
 

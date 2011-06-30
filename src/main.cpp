@@ -49,6 +49,8 @@
 // handle a line of text arriving from a core.
 void CoreInstance::lineFromCore(string &line, class Graphserv &app)
 {
+//    flog(LOG_INFO, "line from core: %s", line.c_str());
+
     SessionContext *sc= app.findClient(lastClientID);
     // check state and forward status line or data set to client.
     if(expectingReply)
@@ -308,7 +310,8 @@ class ccDropGraph: public ServCmd_RTVoid
                 cliFailure(_("couldn't kill the process. %s\n"), strerror(errno));
                 return CMD_FAILURE;
             }
-            cliSuccess(_("killed pid %d.\n"), (int)core->getPid());
+            flog(LOG_INFO, _("client %u killed core with ID %u, pid %d.\n"), sc.clientID, core->getID(), (int)core->getPid());
+            cliSuccess(_("killed core with ID %u, pid %d.\n"), core->getID(), (int)core->getPid());
 //  we shouldn't block here, waiting for the child is done in the select loop.
 //            int status;
 //            waitpid(core->getPid(), &status, 0);
@@ -494,6 +497,19 @@ class ccInfo: public ServCmd_RTOther
                 sc.writef("  running: %s\n", ci->isRunning()? "true": "false");
                 sc.writef("  queue size: %u\n", ci->commandQ.size());
                 sc.writef("  bytes in write buffer: %u\n", ci->getWritebufferSize());
+                sc.writef("  expectingReply: %s\n", ci->expectingReply? "true": "false");
+                sc.writef("  expectingDataset: %s\n", ci->expectingDataset? "true": "false");
+                sc.writef("\n");
+            }
+
+            for(map<uint32_t,SessionContext*>::iterator it= app.sessionContexts.begin(); it!=app.sessionContexts.end(); it++)
+            {
+                SessionContext *ci= it->second;
+                sc.writef("Session ID %d:\n", ci->clientID);
+                sc.writef("  accessLevel: %s\n", gAccessLevelNames[ci->accessLevel]);
+                sc.writef("  connectionType: %s\n", ci->connectionType==CONN_TCP? "TCP": "HTTP");
+                sc.writef("  coreID: %u\n", ci->coreID);
+                sc.writef("  shutdownTime: %.2f (%.2f)\n", ci->shutdownTime, (ci->shutdownTime? getTime()-ci->shutdownTime: -1));
                 sc.writef("\n");
             }
 
@@ -647,6 +663,46 @@ class ccServerInfo: public ServCmd_RTOther
 };
 #endif
 
+
+// shutdown command is filtered by the server.
+class ccShutdown: public ServCmd_RTVoid
+{
+    public:
+        string getName() { return "shutdown"; }
+        string getSynopsis() { return getName(); }
+        string getHelpText() { return _("shut down the core instance you are connected to."); }
+        AccessLevel getAccessLevel() { return ACCESS_ADMIN; }
+
+        CommandStatus execute(vector<string> words, class Graphserv &app, class SessionContext &sc)
+        {
+            if(words.size()!=1)
+            {
+                syntaxError();
+                return CMD_FAILURE;
+            }
+
+            CoreInstance *ci= app.findInstance(sc.coreID);
+            if(!ci)
+            {
+                cliFailure(_("not connected to a core.\n"));
+                return CMD_FAILURE;
+            }
+
+            flog(LOG_INFO, "sending shutdown command to core ID %u, pid %d, from client %u.\n",
+                 ci->getID(), (int)ci->getPid(), sc.clientID);
+
+            // send the command to the core, mark the core as no longer running.
+            // the client will still receive the reply from the core.
+            app.sendCoreCommand(sc, "shutdown\n", false);
+            ci->processRunning= false;
+
+            return CMD_SUCCESS;
+        }
+
+};
+
+
+
 ServCli::ServCli(Graphserv &_app): app(_app)
 {
     // register server commands.
@@ -663,6 +719,7 @@ ServCli::ServCli(Graphserv &_app): app(_app)
     addCommand(new ccServerStats());
     addCommand(new ccProtocolVersion());
     addCommand(new ccQuit());
+    addCommand(new ccShutdown());
 //    addCommand(new ccServerInfo());
 }
 
