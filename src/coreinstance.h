@@ -33,6 +33,14 @@ class CoreInstance: public NonblockWriter
             instanceID(_id), lastClientID(0), expectingReply(false), expectingDataset(false), corePath(_corePath),
             processRunning(false)
         {
+            pipeToCore[0]= pipeToCore[1]= -1;
+            pipeFromCore[0]= pipeFromCore[1]= -1;
+        }
+
+        ~CoreInstance()
+        {
+            close(pipeToCore[1]);
+            close(pipeFromCore[0]);
         }
 
         void writeFailed(int _errno)
