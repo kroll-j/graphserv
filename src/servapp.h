@@ -530,8 +530,6 @@ class Graphserv
         {
             if(line.rfind('\n')!=line.size()-1) line.append("\n");
 
-            flog(LOG_INFO, "line from client: %s", line.c_str());
-
             sc.stats.linesSent++;
             sc.stats.bytesSent+= line.length();
 

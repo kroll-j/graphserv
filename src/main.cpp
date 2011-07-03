@@ -49,8 +49,6 @@
 // handle a line of text arriving from a core.
 void CoreInstance::lineFromCore(string &line, class Graphserv &app)
 {
-    flog(LOG_INFO, "line from core: %s", line.c_str());
-
     SessionContext *sc= app.findClient(lastClientID);
     // check state and forward status line or data set to client.
     if(expectingReply)
@@ -59,7 +57,15 @@ void CoreInstance::lineFromCore(string &line, class Graphserv &app)
         if(lineIndicatesDataset(line))
             expectingDataset= true;         // save flag to determine when a command is finished.
         if(sc)
+        {
+            if(logMask&(1<<LOG_INFO))
+            {
+                vector<string> words= Cli::splitString(line.c_str());
+                if(words.size() && getStatusCode(words[0])!=CMD_SUCCESS)
+                    flog(LOG_INFO, "core '%s', pid %d: status: %s", name.c_str(), pid, line.c_str());
+            }
             sc->forwardStatusline(line);    // virtual fn does http-specific stuff
+        }
     }
     else if(expectingDataset)
     {
