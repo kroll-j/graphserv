@@ -15,7 +15,7 @@
 				<Option type="1" />
 				<Option compiler="gcc" />
 				<Option use_console_runner="0" />
-				<Option parameters="-lia" />
+				<Option parameters="-lia -c ../graphcore/graphcore.dbg" />
 				<Compiler>
 					<Add option="-g" />
 				</Compiler>

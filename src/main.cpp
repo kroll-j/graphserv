@@ -49,7 +49,7 @@
 // handle a line of text arriving from a core.
 void CoreInstance::lineFromCore(string &line, class Graphserv &app)
 {
-//    flog(LOG_INFO, "line from core: %s", line.c_str());
+    flog(LOG_INFO, "line from core: %s", line.c_str());
 
     SessionContext *sc= app.findClient(lastClientID);
     // check state and forward status line or data set to client.
