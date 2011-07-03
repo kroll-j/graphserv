@@ -55,7 +55,7 @@ class Graphserv
 
             int maxfd;
 
-            flog(LOG_INFO, "entering main loop\n");
+            flog(LOG_INFO, "entering main loop. TCP port: %d, HTTP port: %d\n", tcpPort, httpPort);
             while(true)
             {
                 double time= getTime();
