@@ -518,6 +518,7 @@ class Graphserv
             map<uint32_t,SessionContext*>::iterator it= sessionContexts.find(sessionID);
             if(it!=sessionContexts.end())
             {
+                flog(LOG_INFO, "removing client %d\n", it->second->clientID);
                 delete(it->second);
                 sessionContexts.erase(it);
                 return true;

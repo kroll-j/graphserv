@@ -58,6 +58,7 @@ struct SessionContext: public NonblockWriter
     virtual ~SessionContext()
     {
         setNonblocking(sockfd, false);  // force output to be drained on close.
+        flog(LOG_INFO, "closing session context socket %d\n", sockfd);
         close(sockfd);
     }
 
