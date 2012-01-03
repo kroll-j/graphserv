@@ -146,6 +146,7 @@ HTTP Response and Status Code
 The HTTP server translates Graph Processor command status codes to HTTP Status-Codes in the following way: ::
 
 	Success ('OK.') 				200 OK
+	Meta variable query succeeded ('VALUE:')	200 Value
 	Failure, graph did not change ('FAILED!') 	400 Bad Request
 	Error, graph may have changed ('ERROR!')	500 Internal Server Error
 	Success with empty result set ('NONE.')		404 Not Found
