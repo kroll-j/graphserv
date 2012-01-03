@@ -70,7 +70,7 @@ Access Control
 
 Server and core commands are divided into three access levels: *read*, *write* and *admin*. To execute a command, a session's access level must be equal to or higher than the command's access level.
 
-GraphCore commands which modify a graph require *write* access. The *shutdown* command requires *admin* access. 
+GraphCore commands which modify a graph or its meta variables require *write* access. The *shutdown* command requires *admin* access. 
 
 On connection, GraphServ assigns *read* access to a session. Access levels of a session can be elevated by using the *authorize* command, which tries to authorize with the given authority and credentials. 
 

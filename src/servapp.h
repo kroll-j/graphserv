@@ -265,7 +265,7 @@ class Graphserv
             if(!sz) return false;
             char c= name[0];
             if( !isupper(c) && !islower(c) && c!='-' && c!='_' ) return false;
-            for(size_t i= 0; i<name.size(); i++)
+                for(size_t i= 0; i<name.size(); i++)
             {
                 c= name[i];
                 if( !isupper(c) && !islower(c) && !isdigit(c) && c!='-' && c!='_' )
