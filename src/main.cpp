@@ -149,6 +149,10 @@ void HTTPSessionContext::forwardStatusline(const string& line)
             case CMD_ACCESSDENIED:
                 httpWriteErrorResponse(401, "Not Authorized", line, headerStatusLine);
                 break;
+            case CMD_VALUE: // todo: document this
+                httpWriteResponseHeader(200, "Value", "text/plain", headerStatusLine);
+                write(line);
+                break;
             default:
                 httpWriteErrorResponse(500, "Invalid GraphCore Status Line", line, headerStatusLine);
                 break;
