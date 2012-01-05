@@ -149,8 +149,8 @@ void HTTPSessionContext::forwardStatusline(const string& line)
             case CMD_ACCESSDENIED:
                 httpWriteErrorResponse(401, "Not Authorized", line, headerStatusLine);
                 break;
-            case CMD_VALUE: // todo: document this
-                httpWriteResponseHeader(200, "Value", "text/plain", headerStatusLine);
+            case CMD_VALUE: // todo doc
+                httpWriteResponseHeader(222, "Value", "text/plain", headerStatusLine);
                 write(line);
                 break;
             default:
@@ -287,8 +287,12 @@ class ccUseGraph: public ServCmd_RTVoid
                 syntaxError();
                 return CMD_FAILURE;
             }
-            // disconnecting from a core, or switching instances, might be implemented later.
-            if(app.findInstance(sc.coreID)) { cliFailure(_("already connected. switching instances is not currently supported.\n")); return CMD_FAILURE; }
+            
+            if(app.findInstance(sc.coreID))
+            {
+                cliFailure(_("already connected. switching instances is not currently supported.\n")); 
+                return CMD_FAILURE;
+            }
             CoreInstance *core= app.findNamedInstance(words[1]);
             if(!core) { cliFailure(_("no such instance.\n")); return CMD_FAILURE; }
             sc.coreID= core->getID();
