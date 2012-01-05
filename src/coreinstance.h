@@ -1,6 +1,19 @@
 // Graph Processor server component.
-// (c) Wikimedia Deutschland, written by Johannes Kroll in 2011
+// (c) Wikimedia Deutschland, written by Johannes Kroll in 2011, 2012
 // CoreInstance class. handles graphcore command queueing and execution.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #ifndef COREINSTANCE_H
 #define COREINSTANCE_H
@@ -203,7 +216,7 @@ class CoreInstance: public NonblockWriter
             commandQ.push_back(ce);
         }
 
-        // return the client which executed the last command; i. e. the client which will current output from
+        // return the client which executed the last command; i. e. the client which current output from
         // core will be sent to.
         uint32_t getLastClientID()
         {
@@ -243,7 +256,7 @@ class CoreInstance: public NonblockWriter
         int pipeFromCore[2];    // writable from core
 
         typedef deque<CommandQEntry> commandQ_t;
-        deque<CommandQEntry> commandQ;
+        commandQ_t commandQ;
 
         uint32_t lastClientID;  // ID of client who executed the last command. ie: client who should receive output
 

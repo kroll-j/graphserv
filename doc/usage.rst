@@ -146,7 +146,7 @@ HTTP Response and Status Code
 The HTTP server translates Graph Processor command status codes to HTTP Status-Codes in the following way: ::
 
 	Success ('OK.') 				200 OK
-	Meta variable query succeeded ('VALUE:')	200 Value
+	Meta variable query succeeded ('VALUE:')	222 Value
 	Failure, graph did not change ('FAILED!') 	400 Bad Request
 	Error, graph may have changed ('ERROR!')	500 Internal Server Error
 	Success with empty result set ('NONE.')		404 Not Found
@@ -160,7 +160,7 @@ The message-body of the response consists of the status line followed by any res
 
 | 
 | 
-| `GraphServ, GraphCore (C) 2011 Wikimedia Deutschland, written by Johannes Kroll <jkroll at lavabit com>.`
-| `Last update to this text: 2011/06/16`
+| `GraphServ, GraphCore (C) 2011, 2012 Wikimedia Deutschland, written by Johannes Kroll <jkroll at lavabit com>.`
+| `Last update to this text: 2012/01/05`
 
 

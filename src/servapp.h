@@ -1,6 +1,19 @@
 // Graph Processor server component.
-// (c) Wikimedia Deutschland, written by Johannes Kroll in 2011
+// (c) Wikimedia Deutschland, written by Johannes Kroll in 2011, 2012
 // main application class.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #ifndef SERVAPP_H
 #define SERVAPP_H
@@ -385,6 +398,25 @@ class Graphserv
         map<uint32_t,CoreInstance*>& getCoreInstances()
         {
             return coreInstances;
+        }
+        
+        // reconnect session to new core
+        bool reconnectSession(SessionContext *sc, CoreInstance *core)
+        {
+            if(!sc || !core) return false;
+            
+            CoreInstance *oldCore= findInstance(sc->coreID);
+            if(oldCore && oldCore->hasDataForClient(sc->clientID))
+            {
+                // this is not fatal, but commands arriving from a different core could confuse client code.
+                // to avoid this, clients should always wait for cores to reply before switching instances.
+                flog(LOG_ERROR, _("old core instance %s still has data for client %d. "
+                    "client code should wait for core commands to finish before switching instances.\n"), 
+                    oldCore->getName().c_str(), sc->clientID);
+            }
+            
+            sc->coreID= core->getID();
+            return true;
         }
 
     private:

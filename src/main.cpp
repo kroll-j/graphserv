@@ -1,6 +1,19 @@
 // Graph Processor server component.
-// (c) Wikimedia Deutschland, written by Johannes Kroll in 2011
+// (c) Wikimedia Deutschland, written by Johannes Kroll in 2011, 2012
 // main module.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <libintl.h>
 #include <iostream>
@@ -149,7 +162,7 @@ void HTTPSessionContext::forwardStatusline(const string& line)
             case CMD_ACCESSDENIED:
                 httpWriteErrorResponse(401, "Not Authorized", line, headerStatusLine);
                 break;
-            case CMD_VALUE: // todo doc
+            case CMD_VALUE:
                 httpWriteResponseHeader(222, "Value", "text/plain", headerStatusLine);
                 write(line);
                 break;
@@ -288,14 +301,13 @@ class ccUseGraph: public ServCmd_RTVoid
                 return CMD_FAILURE;
             }
             
-            if(app.findInstance(sc.coreID))
-            {
-                cliFailure(_("already connected. switching instances is not currently supported.\n")); 
-                return CMD_FAILURE;
-            }
             CoreInstance *core= app.findNamedInstance(words[1]);
             if(!core) { cliFailure(_("no such instance.\n")); return CMD_FAILURE; }
-            sc.coreID= core->getID();
+            if(!app.reconnectSession(&sc, core))
+            {
+                cliFailure(_("could not reconnect session.\n"));
+                return CMD_FAILURE;
+            }
             cliSuccess(_("connected to pid %d.\n"), (int)core->getPid());
             return CMD_SUCCESS;
         }
@@ -589,7 +601,7 @@ class ccHelp: public ServCmd_RTOther
             if(words.size()==1)
             {
                 // show list of server commands
-                cliSuccess(_("available commands:\n"));
+                cliSuccess(_("available server commands:\n"));
                 sc.forwardStatusline(lastStatusMessage);
                 vector<ServCmd*> &commands= (vector<ServCmd*> &)cli.getCommands();
                 for(size_t i= 0; i<commands.size(); i++)
@@ -597,7 +609,7 @@ class ccHelp: public ServCmd_RTOther
                 if(ci)
                 {
                     // if connected, show list of core commands too.
-                    sc.forwardDataset(string("# ") + _("the following are the core commands:\n"));
+                    // sc.forwardDataset(string("# ") + _("the following are the core commands:\n"));
                     string line;
                     for(vector<string>::iterator it= words.begin(); it!=words.end(); it++)
                         line+= *it,
