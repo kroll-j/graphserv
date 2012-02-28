@@ -123,6 +123,14 @@ void SessionContext::writeFailed(int _errno)
     app.forceClientDisconnect(this);
 }
 
+// true if this session is waiting for a reply from its connected core instance.
+bool SessionContext::isWaitingForCoreReply()
+{
+    CoreInstance *instance= app.findInstance(coreID);
+    if(!instance) return false;
+    return instance->hasDataForClient(clientID);
+}
+
 // forward statusline to http client, possibly mark client to be disconnected
 void HTTPSessionContext::forwardStatusline(const string& line)
 {

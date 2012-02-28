@@ -27,7 +27,8 @@ struct SessionContext: public NonblockWriter
     ConnectionType connectionType;
     uint32_t coreID;    // non-zero if connected to a core instance
     int sockfd;
-    string linebuf;
+    string linebuf;             // text which is read from this client is buffered here.
+    queue<string> lineQueue;    // lines which arrive from this client while the session is waiting for core reply are buffered here.
     class Graphserv &app;
     double chokeTime;
     // this is set when a client sends an invalid command with a data set.
@@ -74,6 +75,9 @@ struct SessionContext: public NonblockWriter
         flog(LOG_INFO, "closing session context socket %d\n", sockfd);
         close(sockfd);
     }
+    
+    // true if this session is waiting for a reply from its connected core instance.
+    bool isWaitingForCoreReply();
 
     // write-error callback
     void writeFailed(int _errno);

@@ -237,8 +237,20 @@ class Graphserv
                                 ci->linebuf+= c;
                                 if(c=='\n')
                                 {
+                                    SessionContext *sc= findClient(ci->getLastClientID());
+                                    bool clientWasWaiting= (sc && sc->isWaitingForCoreReply());
                                     ci->lineFromCore(ci->linebuf, *this);
                                     ci->linebuf.clear();
+                                    // if this was the last line the client was waiting for, 
+                                    // execute its queued commands now.
+                                    if( clientWasWaiting && (!sc->isWaitingForCoreReply()) )
+                                        while(!sc->lineQueue.empty())
+                                        {
+                                            string& line= sc->lineQueue.front();
+                                            flog(LOG_INFO, "execing queued line from client: '%s", line.c_str());
+                                            lineFromClient(line, *sc, time);
+                                            sc->lineQueue.pop();
+                                        }
                                 }
                             }
                         }
@@ -583,8 +595,8 @@ class Graphserv
                 return;
             }
 
-            // if(sc connected && running command for this client accepts more data)
-            //      append data to command queue entry
+            // if(sc connected to core && running core command for this client accepts more data)
+            //      append data to core's command queue entry
             if(sc.coreID)
             {
                 CoreInstance *ci= findInstance(sc.coreID);
@@ -611,6 +623,13 @@ class Graphserv
                 }
             }
 
+            if(sc.isWaitingForCoreReply())
+            {
+                flog(LOG_INFO, "queuing: '%s", line.c_str());
+                sc.lineQueue.push(line);   // must finish pending core commands first, queue this line for later processing
+                return;
+            }
+            
             vector<string> words= Cli::splitString(line.c_str(), " \t\n");
             if(words.empty()) return;
 
@@ -622,7 +641,7 @@ class Graphserv
                 hasDataSet= true;
                 words.back().erase(sz-1);
             }
-
+            
             // first check if there's a server command with this name
             ServCmd *cmd= (ServCmd*)cli.findCommand(words[0]);
             if(cmd)
@@ -638,7 +657,7 @@ class Graphserv
             // if connected, forward the command to the core
             else if(findInstance(sc.coreID))
                 sendCoreCommand(sc, line, hasDataSet, &words);
-            // no server command and not connected. no such command.
+            // no server command and not connected => no such command.
             else
             {
                 if(hasDataSet)  // invalid command with data set
