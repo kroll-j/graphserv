@@ -248,7 +248,7 @@ class Graphserv
                                         {
                                             string& line= sc->lineQueue.front();
                                             flog(LOG_INFO, "execing queued line from client: '%s", line.c_str());
-                                            lineFromClient(line, *sc, time);
+                                            lineFromClient(line, *sc, time, true);
                                             sc->lineQueue.pop();
                                         }
                                 }
@@ -571,7 +571,7 @@ class Graphserv
         }
 
         // handle a line of text arriving from a client.
-        void lineFromClient(string line, SessionContext &sc, double timestamp)
+        void lineFromClient(string line, SessionContext &sc, double timestamp, bool fromServerQueue= false)
         {
             if(line.rfind('\n')!=line.size()-1) line.append("\n");
 
@@ -623,7 +623,7 @@ class Graphserv
                 }
             }
 
-            if(sc.isWaitingForCoreReply())
+            if(!fromServerQueue && sc.isWaitingForCoreReply())
             {
                 flog(LOG_INFO, "queuing: '%s", line.c_str());
                 sc.lineQueue.push(line);   // must finish pending core commands first, queue this line for later processing
