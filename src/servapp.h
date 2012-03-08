@@ -563,6 +563,16 @@ class Graphserv
             if(it!=sessionContexts.end())
             {
                 flog(LOG_INFO, "removing client %d\n", it->second->clientID);
+                CoreInstance *ci;
+                if( it->second->coreID && (ci= findInstance(it->second->coreID)) )
+                {
+                    CommandQEntry *cqe= ci->findLastClientCommand(it->second->clientID);
+                    if(cqe && cqe->acceptsData && (!cqe->dataFinished))
+                    {
+                        flog(LOG_ERROR, _("terminating open data set of connected core '%s' (ID %u)\n"), ci->getName().c_str(), ci->getID());
+                        cqe->appendToDataset("\n\n");
+                    }
+                }
                 delete(it->second);
                 sessionContexts.erase(it);
                 return true;
@@ -607,10 +617,7 @@ class Graphserv
                     {
                         sc.stats.dataRecordsSent++;
                         sc.stats.linesQueued++;
-
-                        cqe->dataset.push_back(line);
-                        if(Cli::splitString(line.c_str()).size()==0)
-                            cqe->dataFinished= true;
+                        cqe->appendToDataset(line);
                         return;
                     }
                     ci->flushCommandQ(*this);

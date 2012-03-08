@@ -34,6 +34,15 @@ struct CommandQEntry
 	{
 	    return (!acceptsData) || dataFinished;
 	}
+    
+    void appendToDataset(const string& line)
+    {
+        if(!acceptsData || dataFinished)
+            return;
+        dataset.push_back(line);
+        if(Cli::splitString(line.c_str()).size()==0)
+            dataFinished= true;
+    }
 };
 
 // a CoreInstance object handles a GraphCore process.
