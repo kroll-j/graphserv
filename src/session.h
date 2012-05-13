@@ -62,12 +62,13 @@ struct SessionContext: public NonblockWriter
     Stats stats;
 
 
-    SessionContext(class Graphserv &_app, uint32_t cID, int sock, ConnectionType connType= CONN_TCP):
-        clientID(cID), accessLevel(ACCESS_READ), connectionType(connType), coreID(0), sockfd(sock), app(_app),
-        chokeTime(0), invalidDatasetStatus(CMD_SUCCESS), shutdownTime(0)
-    {
-        setWriteFd(sockfd);
-    }
+	SessionContext(class Graphserv &app_, uint32_t cID, int sock, ConnectionType connType):
+		clientID(cID), accessLevel(ACCESS_READ), connectionType(connType), 
+		coreID(0), sockfd(sock), app(app_),
+		chokeTime(0), invalidDatasetStatus(CMD_SUCCESS), shutdownTime(0)
+	{
+		setWriteFd(sockfd);
+	}
 
     virtual ~SessionContext()
     {
@@ -108,7 +109,7 @@ struct SessionContext: public NonblockWriter
 
 // session context with information about and methods for handling a client connection.
 // this class handles HTTP connections.
-struct HTTPSessionContext: public SessionContext
+struct HTTPSessionContext: SessionContext
 {
     bool conversationFinished;  // client will be disconnected when this is false and there's no buffered data left.
 
@@ -120,8 +121,8 @@ struct HTTPSessionContext: public SessionContext
         HttpClientState(): commandsExecuted(0) { }
     } http;
 
-    HTTPSessionContext(class Graphserv &_app, uint32_t cID, int sock):
-        SessionContext(app, cID, sock, CONN_HTTP),
+    HTTPSessionContext(class Graphserv &app_, uint32_t cID, int sock):
+        SessionContext(app_, cID, sock, CONN_HTTP),
         conversationFinished(false)
     {
     }

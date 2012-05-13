@@ -159,9 +159,9 @@ class Graphserv
                         flog(LOG_ERROR, _("couldn't create connection.\n"));
 
                 // loop through all the session contexts, handle incoming data, flush outgoing data if possible.
-                for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
+                for( map<uint32_t,SessionContext*>::iterator it= sessionContexts.begin(); it!=sessionContexts.end(); it++ )
                 {
-                    SessionContext &sc= *i->second;
+                    SessionContext &sc= *it->second;
                     int sockfd= sc.sockfd;
                     if(FD_ISSET(sockfd, &readfds))
                     {
@@ -192,7 +192,7 @@ class Graphserv
 
                                     linesFromClients++;
 
-                                    if(sc.connectionType==CONN_HTTP)
+									if(sc.connectionType==CONN_HTTP)
                                         lineFromHTTPClient(sc.linebuf, *(HTTPSessionContext*)&sc, time);
                                     else
                                         lineFromClient(string(sc.linebuf), sc, time);
