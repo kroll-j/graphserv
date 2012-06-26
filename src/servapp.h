@@ -96,8 +96,8 @@ class Graphserv
                         sc->stats.normalize(time);
                         flog(LOG_INFO, "client %u: bytesSent %.2f, linesQueued %.2f, coreCommandsSent %.2f, servCommandsSent %.2f\n",
                              sc->clientID, sc->stats.bytesSent, sc->stats.linesQueued, sc->stats.coreCommandsSent, sc->stats.servCommandsSent);
-                        // possibly do something like this later to prevent flooding.
-                        /* if(sc->stats.bytesSent>1000) sc->chokeTime= time+0.5; */
+                        // testing this to prevent flooding.
+                        if(sc->stats.linesQueued>5000) sc->chokeTime= time+0.5;
                         sc->stats.reset();
                         sc->stats.lastTime= time;
                     }
