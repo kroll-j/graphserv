@@ -38,6 +38,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <libgen.h>
+#include <exception>
+#include <stdexcept>
 
 #include "clibase.h"
 #include "const.h"
