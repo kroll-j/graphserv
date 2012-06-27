@@ -97,12 +97,14 @@ class Graphserv
                         flog(LOG_INFO, "client %u: bytesSent %.2f, linesQueued %.2f, coreCommandsSent %.2f, servCommandsSent %.2f\n",
                              sc->clientID, sc->stats.bytesSent, sc->stats.linesQueued, sc->stats.coreCommandsSent, sc->stats.servCommandsSent);
                         // testing this to prevent flooding.
-                        if(sc->stats.linesQueued>5000) sc->chokeTime= time+0.5;
+                        //~ if(sc->stats.linesQueued>5000) { flog(LOG_INFO, "choke\n"); sc->chokeTime= time+10.0; }
                         sc->stats.reset();
                         sc->stats.lastTime= time;
                     }
                     if(sc->chokeTime<time)  // chokeTime could be used to slow down a spamming client.
                         fd_add(readfds, sc->sockfd, maxfd);
+                    else
+                        flog(LOG_INFO, "not reading from client %u (flood).\n", sc->clientID);
                     // only add write fd if there is something to write
                     if(!sc->writeBufferEmpty())
                         fd_add(writefds, sc->sockfd, maxfd);
