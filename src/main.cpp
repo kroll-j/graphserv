@@ -40,6 +40,8 @@
 #include <libgen.h>
 #include <exception>
 #include <stdexcept>
+#include <signal.h>
+//#include <siginfo.h>
 
 #include "clibase.h"
 #include "const.h"
@@ -803,6 +805,21 @@ static unsigned cmdlnParseUint(char *str)
     return atoi(str);
 }
 
+// sigchld handler stuff - print some info about signals sent to graphcore processes
+void sigchldHandler(int signal, siginfo_t *si, void *context)
+{
+    flog(LOG_ERROR, _("received SIGCHLD. signal=%d. si_pid=%d, si_status=%d, si_signo=%d, si_errno=%d, si_code=%d\n"), 
+                                        signal, si->si_pid, si->si_status, si->si_signo, si->si_errno, si->si_code);
+}
+
+void handleSigchld()
+{
+    static struct sigaction sa;
+    sa.sa_sigaction= sigchldHandler;
+    sa.sa_flags= SA_SIGINFO;
+    sigaction(SIGCHLD, &sa, 0);
+}
+
 /////////////////////////////////////////// main ///////////////////////////////////////////
 
 int main(int argc, char *argv[])
@@ -873,6 +890,9 @@ int main(int argc, char *argv[])
     // we don't want broken pipe signals to be delivered to us.
     // exiting core instances are handled in the select loop.
     signal(SIGPIPE, SIG_IGN);
+    
+    // install SIGCHLD handler
+    handleSigchld();
 
     // instantiate app and kick off main loop.
     Graphserv s(tcpPort, httpPort, htpwFilename, groupFilename, corePath);
