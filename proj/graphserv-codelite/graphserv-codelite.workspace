@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CodeLite_Workspace Name="graphserv-codelite" Database="./graphserv-codelite.tags">
+  <Project Name="graphserv_codelite" Path="../graphserv_codelite.project" Active="Yes"/>
+  <Project Name="graphcore" Path="graphcore.project" Active="No"/>
+  <BuildMatrix>
+    <WorkspaceConfiguration Name="Debug" Selected="no">
+      <Project Name="graphserv_codelite" ConfigName="Debug"/>
+      <Project Name="graphcore" ConfigName="Debug"/>
+    </WorkspaceConfiguration>
+    <WorkspaceConfiguration Name="Release" Selected="yes">
+      <Project Name="graphserv_codelite" ConfigName="Release"/>
+      <Project Name="graphcore" ConfigName="Release"/>
+    </WorkspaceConfiguration>
+  </BuildMatrix>
+</CodeLite_Workspace>
