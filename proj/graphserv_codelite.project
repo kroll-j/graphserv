@@ -37,7 +37,10 @@
       <ResourceCompiler Options="" Required="no"/>
       <General OutputFile="/mnt/cryptroot/home/johannes/code/graphserv/graphserv.dbg" IntermediateDirectory="" Command="/mnt/cryptroot/home/johannes/code/graphserv/graphserv.dbg" CommandArguments="-l eia" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="/mnt/cryptroot/home/johannes/code/graphserv/" PauseExecWhenProcTerminates="yes"/>
       <Environment EnvVarSetName="&lt;Use Defaults&gt;" DbgSetName="&lt;Use Defaults&gt;">
-        <![CDATA[]]>
+        <![CDATA[
+      
+      
+      ]]>
       </Environment>
       <Debugger IsRemote="no" RemoteHostName="" RemoteHostPort="" DebuggerPath="">
         <PostConnectCommands/>
@@ -59,7 +62,8 @@
         <CustomPostBuild/>
         <CustomPreBuild/>
       </AdditionalRules>
-      <Completion>
+      <Completion EnableCpp11="no">
+        <ClangCmpFlagsC/>
         <ClangCmpFlags/>
         <ClangPP/>
         <SearchPaths/>
@@ -71,7 +75,7 @@
       </Compiler>
       <Linker Options="-O2" Required="yes"/>
       <ResourceCompiler Options="" Required="no"/>
-      <General OutputFile="/mnt/cryptroot/home/johannes/code/graphserv/graphserv" IntermediateDirectory="" Command="/mnt/cryptroot/home/johannes/code/graphserv/graphserv.dbg" CommandArguments="-l eia" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="/mnt/cryptroot/home/johannes/code/graphserv/" PauseExecWhenProcTerminates="yes"/>
+      <General OutputFile="$(ProjectPath)/../graphserv.dbg" IntermediateDirectory="" Command="$(ProjectPath)/../graphserv.dbg" CommandArguments="-l eia" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="$(ProjectPath)/../" PauseExecWhenProcTerminates="yes"/>
       <Environment EnvVarSetName="&lt;Use Defaults&gt;" DbgSetName="&lt;Use Defaults&gt;">
         <![CDATA[]]>
       </Environment>
@@ -84,18 +88,19 @@
       <CustomBuild Enabled="yes">
         <RebuildCommand>make clean; make</RebuildCommand>
         <CleanCommand>make clean</CleanCommand>
-        <BuildCommand>make</BuildCommand>
+        <BuildCommand>make STDERR_DEBUGGING=1</BuildCommand>
         <PreprocessFileCommand/>
         <SingleFileCommand/>
         <MakefileGenerationCommand/>
         <ThirdPartyToolName>None</ThirdPartyToolName>
-        <WorkingDirectory>/home/johannes/code/graphserv</WorkingDirectory>
+        <WorkingDirectory>$(ProjectPath)/..</WorkingDirectory>
       </CustomBuild>
       <AdditionalRules>
         <CustomPostBuild/>
         <CustomPreBuild/>
       </AdditionalRules>
-      <Completion>
+      <Completion EnableCpp11="no">
+        <ClangCmpFlagsC/>
         <ClangCmpFlags/>
         <ClangPP/>
         <SearchPaths/>

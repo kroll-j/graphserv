@@ -57,12 +57,14 @@ class CoreInstance: public NonblockWriter
         {
             pipeToCore[0]= pipeToCore[1]= -1;
             pipeFromCore[0]= pipeFromCore[1]= -1;
+            pipeFromCoreStderr[0]= pipeFromCoreStderr[1]= -1;
         }
 
         ~CoreInstance()
         {
             close(pipeToCore[1]);
             close(pipeFromCore[0]);
+            close(pipeFromCoreStderr[0]);
         }
 
         void writeFailed(int _errno)
@@ -74,7 +76,9 @@ class CoreInstance: public NonblockWriter
         // try to start with given binary path name (default parameter falls back to the path set in constructor).
         bool startCore(const char *path= 0)
         {
-            if(pipe(pipeToCore)==-1 || pipe(pipeFromCore)==-1)
+            if(pipe(pipeToCore)==-1 || 
+			   pipe(pipeFromCore)==-1 ||
+			   pipe(pipeFromCoreStderr)==-1)
             {
                 setLastError(string("pipe(): ") + strerror(errno));
                 return false;
@@ -94,11 +98,14 @@ class CoreInstance: public NonblockWriter
             {
                 // child process (core)
 
-                if(dup2(pipeToCore[0], STDIN_FILENO)==-1 || dup2(pipeFromCore[1], STDOUT_FILENO)==-1)
+                if(dup2(pipeToCore[0], STDIN_FILENO)==-1 || 
+				   dup2(pipeFromCore[1], STDOUT_FILENO)==-1 ||
+				   dup2(pipeFromCoreStderr[1], STDERR_FILENO)==-1)
                     exit(101);  // setup failed
 
                 close(pipeToCore[1]);
                 close(pipeFromCore[0]);
+                close(pipeFromCoreStderr[0]);
 
                 setlinebuf(stdout);
 
@@ -122,6 +129,7 @@ class CoreInstance: public NonblockWriter
 
                 close(pipeToCore[0]);
                 close(pipeFromCore[1]);
+                close(pipeFromCoreStderr[1]);
 
                 FILE *toCore= fdopen(pipeToCore[1], "w");
                 FILE *fromCore= fdopen(pipeFromCore[0], "r");
@@ -186,6 +194,7 @@ class CoreInstance: public NonblockWriter
         void setName(string nm) { name= nm; }   // must *not* check for validity of name.
         pid_t getPid() { return pid; }
         int getReadFd() { return pipeFromCore[0]; }
+        int getStderrReadFd() { return pipeFromCoreStderr[0]; }
         int getWriteFd() { return pipeToCore[1]; }
 
         // find *last* command for this client in queue
@@ -261,8 +270,9 @@ class CoreInstance: public NonblockWriter
         string name;
 
         pid_t pid;
-        int pipeToCore[2];      // writable from server
-        int pipeFromCore[2];    // writable from core
+        int pipeToCore[2];      	// writable from server (core's stdin)
+        int pipeFromCore[2];    	// writable from core (core's stdout)
+        int pipeFromCoreStderr[2];  // writable from core (core's stderr)
 
         typedef deque<CommandQEntry> commandQ_t;
         commandQ_t commandQ;

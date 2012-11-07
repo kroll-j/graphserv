@@ -14,7 +14,7 @@ Release:	graphserv
 Debug:		graphserv.dbg
 
 graphcore/graphcore:	graphcore/src/*
-		make -C graphcore Release
+		make -C graphcore STDERR_DEBUGGING=$(STDERR_DEBUGGING) Release
 
 graphcore/graphcore.dbg:	graphcore/src/*
 		make -C graphcore Debug

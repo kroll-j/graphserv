@@ -115,6 +115,7 @@ class Graphserv
                 {
                     CoreInstance *ci= i->second;
                     fd_add(readfds, ci->getReadFd(), maxfd);
+                    fd_add(readfds, ci->getStderrReadFd(), maxfd);
                     ci->flushCommandQ(*this);
                     // only add write fd if there is something to write
                     if(!ci->writeBufferEmpty())
@@ -257,7 +258,19 @@ class Graphserv
                             }
                         }
                     }
-                    if(FD_ISSET(ci->getWriteFd(), &writefds))
+                    else if(FD_ISSET(ci->getStderrReadFd(), &readfds))
+                    {
+                        const size_t BUFSIZE= 1024;
+                        char buf[BUFSIZE];
+                        ssize_t sz= read(ci->getStderrReadFd(), buf, sizeof(buf));
+                        if(sz>0)
+						{
+							do { buf[sz--]= 0; } while(sz && (buf[sz]=='\r' || buf[sz]=='\n'));
+							flog(LOG_INFO, "DEBUG %s: %s\n", ci->getName().c_str(), buf);
+						}
+					}
+                    
+					if(FD_ISSET(ci->getWriteFd(), &writefds))
                         ci->flush();
                 }
                 // remove outside of loop to avoid invalidating iterators
