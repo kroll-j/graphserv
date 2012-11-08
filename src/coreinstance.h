@@ -108,6 +108,7 @@ class CoreInstance: public NonblockWriter
                 close(pipeFromCoreStderr[0]);
 
                 setlinebuf(stdout);
+                setlinebuf(stderr);
 
                 // dirname and basename may modify their arguments, so duplicate the strings first.
                 char dirnameBase[strlen(path)+1];

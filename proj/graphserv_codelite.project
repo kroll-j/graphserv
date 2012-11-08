@@ -40,6 +40,7 @@
         <![CDATA[
       
       
+      
       ]]>
       </Environment>
       <Debugger IsRemote="no" RemoteHostName="" RemoteHostPort="" DebuggerPath="">
@@ -81,7 +82,8 @@
       </Environment>
       <Debugger IsRemote="no" RemoteHostName="" RemoteHostPort="" DebuggerPath="">
         <PostConnectCommands/>
-        <StartupCommands/>
+        <StartupCommands>set follow-fork-mode child
+</StartupCommands>
       </Debugger>
       <PreBuild/>
       <PostBuild/>
