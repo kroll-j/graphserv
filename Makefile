@@ -1,6 +1,6 @@
 # on solaris, we need -lsocket for socket functions. check for libsocket.
 ifneq ($(shell nm -DP /lib/libsocket.so* 2>/dev/null | grep -v UNDEF | grep '^accept[[:space:]]*'),)
-	SOCKETLIB=-lsocket
+	SOCKETLIB=-lsocket -lnsl
 else
 	SOCKETLIB=
 endif
