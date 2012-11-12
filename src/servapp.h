@@ -260,14 +260,9 @@ class Graphserv
                     }
                     else if(FD_ISSET(ci->getStderrReadFd(), &readfds))
                     {
-                        const size_t BUFSIZE= 1024;
-                        char buf[BUFSIZE];
-                        ssize_t sz= read(ci->getStderrReadFd(), buf, sizeof(buf));
-                        if(sz>0)
-						{
-							do { buf[sz--]= 0; } while(sz && (buf[sz]=='\r' || buf[sz]=='\n'));
-							flog(LOG_INFO, "DEBUG %s: %s\n", ci->getName().c_str(), buf);
-						}
+                        deque<string> lines= ci->stderrQ.nextLines(ci->getStderrReadFd());
+						for(deque<string>::const_iterator it= lines.begin(); it!=lines.end(); it++)
+							flog(LOG_INFO, "[%s] %s", ci->getName().c_str(), it->c_str());
 					}
                     
 					if(FD_ISSET(ci->getWriteFd(), &writefds))
@@ -492,7 +487,7 @@ class Graphserv
             sa.sin_family= AF_INET;
             sa.sin_addr.s_addr= htonl(INADDR_ANY);
             sa.sin_port= htons(port);
-            if(bind(listenSocket, (sockaddr*)&sa, sizeof(sa))<0)
+            if(::bind(listenSocket, (sockaddr*)&sa, sizeof(sa))<0)
             {
                 logerror("bind()");
                 close(listenSocket);
@@ -541,7 +536,9 @@ class Graphserv
         // accept connection on a socket and create session context.
         SessionContext *acceptConnection(int socket, ConnectionType type)
         {
-            int newConnection= accept(socket, 0, 0);
+			sockaddr sa;
+			socklen_t addrlen= sizeof(sa);
+            int newConnection= accept(socket, &sa, &addrlen);
             if(newConnection<0)
             {
                 logerror("accept()");
@@ -550,7 +547,9 @@ class Graphserv
             else
             {
                 // add new connection
-                flog(LOG_INFO, "new connection, type %s, socket=%d\n", (type==CONN_TCP? "TCP": "HTTP"), newConnection);
+				char addrstr[256]= "(inet_ntop failed)";
+				inet_ntop(sa.sa_family, &sa, addrstr, addrlen);
+                flog(LOG_INFO, "new connection from %s, type %s, socket=%d\n", addrstr, (type==CONN_TCP? "TCP": "HTTP"), newConnection);
                 return createSession(newConnection, type);
             }
         }

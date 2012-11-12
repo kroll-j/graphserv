@@ -45,11 +45,47 @@ struct CommandQEntry
     }
 };
 
+class LineRecvQ
+{
+	public:
+		// todo: figure out how to use move semantics
+		deque<string> nextLines(const string& str)
+		{
+			deque<string> lineQueue;
+			for(string::const_iterator it= str.begin(); it!=str.end(); it++)
+			{
+				readbuf+= *it;
+				if(*it=='\n')
+				{
+					lineQueue.push_back(readbuf);
+					readbuf.clear();
+				}
+			}
+			return (lineQueue);
+		}
+		
+		deque<string> nextLines(int fd)
+		{
+			const size_t BUFSIZE= 1024;
+			char buf[BUFSIZE];
+			ssize_t sz= read(fd, buf, sizeof(buf)-1);
+			if(sz>0)
+			{
+				buf[sz]= 0;
+				return (nextLines(buf));
+			}
+			return (deque<string>());
+		}
+	private:
+		string readbuf;
+};
+
 // a CoreInstance object handles a GraphCore process.
 class CoreInstance: public NonblockWriter
 {
     public:
         string linebuf;     // data read from core gets buffered here.
+		LineRecvQ stderrQ;	// data read from core stderr gets buffered here.
 
         CoreInstance(uint32_t _id, const string& _corePath):
             instanceID(_id), lastClientID(0), expectingReply(false), expectingDataset(false), corePath(_corePath),

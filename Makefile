@@ -5,7 +5,7 @@ else
 	SOCKETLIB=
 endif
 
-CCFLAGS=-Wall -Igraphcore/src
+CCFLAGS=-Wall -std=c++0x -Igraphcore/src
 LDFLAGS=-lcrypt $(SOCKETLIB)
 
 all: 		Release Debug

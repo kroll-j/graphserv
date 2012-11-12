@@ -16,6 +16,7 @@
     <File Name="../src/servcli.h"/>
     <File Name="../src/const.h"/>
     <File Name="../src/session.h"/>
+    <File Name="../crashlog.txt"/>
   </VirtualDirectory>
   <Dependencies Name="Debug"/>
   <Dependencies Name="Release"/>
