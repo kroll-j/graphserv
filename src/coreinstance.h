@@ -26,6 +26,7 @@ struct CommandQEntry
 	uint32_t clientID;      // who runs this command
 	bool acceptsData;       // command accepts an input data set (colon)?
 	bool dataFinished;      // data set was terminated with empty line?
+    double sendBeginTime;   // when did the client begin to send this command
 
 	CommandQEntry(): clientID(0), acceptsData(false), dataFinished(true)
 	{ }
@@ -268,6 +269,7 @@ class CoreInstance: public NonblockWriter
             ce.dataFinished= false;
             ce.clientID= clientID;
             ce.command= cmd;
+            ce.sendBeginTime= getTime();
             commandQ.push_back(ce);
         }
 

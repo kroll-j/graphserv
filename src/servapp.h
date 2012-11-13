@@ -547,8 +547,8 @@ class Graphserv
             else
             {
                 // add new connection
-				char addrstr[256]= "(inet_ntop failed)";
-				inet_ntop(sa.sa_family, &sa, addrstr, addrlen);
+				char addrstr[256];
+                getnameinfo(&sa, addrlen, addrstr, sizeof(addrstr), NULL, 0, 0);
                 flog(LOG_INFO, "new connection from %s, type %s, socket=%d\n", addrstr, (type==CONN_TCP? "TCP": "HTTP"), newConnection);
                 return createSession(newConnection, type);
             }
@@ -632,6 +632,13 @@ class Graphserv
                         sc.stats.dataRecordsSent++;
                         sc.stats.linesQueued++;
                         cqe->appendToDataset(line);
+                        if(cqe->dataFinished)
+                        {
+                            size_t records= cqe->dataset.size();
+                            double time= getTime()-cqe->sendBeginTime;
+                            flog(LOG_INFO, _("client sent %d data records to %s in %.3f seconds, %.2f lines/sec.\n"), 
+                                records, ci->getName().c_str(), time, (time? records/time: -1));
+                        }
                         return;
                     }
                     ci->flushCommandQ(*this);
@@ -654,7 +661,8 @@ class Graphserv
             vector<string> words= Cli::splitString(line.c_str(), " \t\n");
             if(words.empty()) return;
 
-            // check line for terminating colon ':'
+            // check line for terminating colon which indicates that a data set follows
+            // todo: buffer data set in SessionContext instead of CoreInstance so that core isn't blocked by slow clients
             bool hasDataSet= false;
             size_t sz= words.back().size();
             if(sz && words.back()[sz-1]==':')
