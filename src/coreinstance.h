@@ -165,7 +165,7 @@ class CoreInstance: public NonblockWriter
                     exit(103);  // couldn't chdir()
 
                 char *binName= basename(basenameBase);
-                if(execl(binName, binName, NULL)<0)
+                if(execl(binName, format("%s-%s", binName, getName().c_str()).c_str(), NULL)<0)
                     exit(102);  // couldn't exec()
             }
             else
