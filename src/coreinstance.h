@@ -30,6 +30,13 @@ struct CommandQEntry
 
 	CommandQEntry(): clientID(0), acceptsData(false), dataFinished(true)
 	{ }
+    
+    CommandQEntry(uint32_t clientID_, string command_): command(command_), clientID(clientID_), acceptsData(false), dataFinished(true)
+    {
+        if(lineIndicatesDataset(command))
+            acceptsData= true, 
+            dataFinished= false;
+    }
 
 	bool flushable()
 	{
@@ -271,6 +278,11 @@ class CoreInstance: public NonblockWriter
             ce.command= cmd;
             ce.sendBeginTime= getTime();
             commandQ.push_back(ce);
+        }
+        
+        void queueCommand(CommandQEntry *ce)
+        {
+            commandQ.push_back(*ce);
         }
 
         // return the client which executed the last command; i. e. the client which current output from

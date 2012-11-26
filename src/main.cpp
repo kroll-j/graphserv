@@ -100,7 +100,7 @@ void CoreInstance::lineFromCore(string &line, class Graphserv &app)
     }
 }
 
-// write out as much commands from queue to core process as possible.
+// write out as many commands from queue to core process as possible.
 void CoreInstance::flushCommandQ(class Graphserv &app)
 {
     while( commandQ.size() && (!expectingReply) && (!expectingDataset) && commandQ.front().flushable() )
@@ -628,7 +628,11 @@ class ccHelp: public ServCmd_RTOther
                         line+= *it,
                         line+= " ";
                     line+= "\n";
+#ifdef SESSIONCONTEXTLINEQUEUING
+                    app.forwardToCore(new CommandQEntry(sc.clientID, line), sc);
+#else
                     app.sendCoreCommand(sc, line, false, &words);
+#endif
                 }
                 else sc.forwardDataset("\n");
             }
@@ -651,7 +655,11 @@ class ccHelp: public ServCmd_RTOther
                         line+= *it,
                         line+= " ";
                     line+= "\n";
+#ifdef SESSIONCONTEXTLINEQUEUING
+                    app.forwardToCore(new CommandQEntry(sc.clientID, line), sc);
+#else
                     app.sendCoreCommand(sc, line, false, &words);
+#endif
                 }
                 else
                 {
@@ -732,7 +740,11 @@ class ccShutdown: public ServCmd_RTVoid
 
             // send the command to the core, mark the core as no longer running.
             // the client will still receive the reply from the core.
+#ifdef SESSIONCONTEXTLINEQUEUING
+            app.forwardToCore(new CommandQEntry(sc.clientID, "shutdown\n"), sc);
+#else
             app.sendCoreCommand(sc, "shutdown\n", false);
+#endif
             ci->processRunning= false;
 
             return CMD_SUCCESS;

@@ -373,48 +373,6 @@ class Graphserv
             clientsToRemove.insert(sc->clientID);
         }
 
-        // send a command from this client to the core it is connected to.
-        void sendCoreCommand(SessionContext& sc, string line, bool hasDataSet, vector<string> *cmdwords= 0)
-        {
-            const vector<string>& words= (cmdwords? *cmdwords: Cli::splitString(line.c_str()));
-            sc.stats.coreCommandsSent++;
-            CoreCommandInfo *cci= findCoreCommand(words[0]);
-            if(cci)
-            {
-                AccessLevel al= cci->accessLevel;
-                if( line.find(">")!=string::npos || line.find("<")!=string::npos )
-                    al= ACCESS_ADMIN;   // i/o redirection requires admin level.
-                if(sc.accessLevel>=al)
-                {
-                    // write command to instance
-                    CoreInstance *ci= findInstance(sc.coreID);
-                    if(ci) ci->queueCommand(line, sc.clientID, hasDataSet), sc.stats.linesQueued++;
-                    else sc.writef(_("%s client has invalid core ID %u\n"), FAIL_STR, sc.coreID);
-                }
-                else
-                {
-                    if(hasDataSet)
-                        // read data set, then print error message.
-                        sc.invalidDatasetStatus= CMD_ACCESSDENIED,
-                        sc.invalidDatasetMsg= format(_("%s insufficient access level (command needs %s, you have %s)\n"), DENIED_STR,
-                                                     gAccessLevelNames[al], gAccessLevelNames[sc.accessLevel]);
-                    else
-                        // forward line as if it came from core so that the http code can do its stuff
-                        sc.forwardStatusline(string(DENIED_STR " ") + format(_("insufficient access level (command needs %s, you have %s)\n"),
-                                             gAccessLevelNames[al], gAccessLevelNames[sc.accessLevel]));
-                }
-            }
-            else
-            {
-                if(hasDataSet)
-                    // read data set, then print error message.
-                    sc.invalidDatasetStatus= CMD_NOT_FOUND,
-                    sc.invalidDatasetMsg= format(_("no such core command '%s'."), words[0].c_str());
-                else
-                    // print error message.
-                    sc.commandNotFound(format(_("no such core command '%s'."), words[0].c_str()));
-            }
-        }
 
         // get the core instances
         map<uint32_t,CoreInstance*>& getCoreInstances()
@@ -593,6 +551,167 @@ class Graphserv
             }
             return false;
         }
+#ifdef SESSIONCONTEXTLINEQUEUING
+        public:
+        void forwardToCore(CommandQEntry *ce, SessionContext &sc)
+        {
+            vector<string> words= Cli::splitString(ce->command.c_str(), " \t\n:<>");
+            
+            CoreInstance *ci= findInstance(sc.coreID);
+            if(ci)
+            {
+                CoreCommandInfo *cci= findCoreCommand(words[0]);
+                if(cci)
+                {
+                    AccessLevel al= cci->accessLevel;
+                    if( ce->command.find(">")!=string::npos || ce->command.find("<")!=string::npos )
+                        al= ACCESS_ADMIN;   // i/o redirection requires admin level.
+                    if(sc.accessLevel>=al)
+                    {
+                        ci->queueCommand(ce);
+                        ci->flushCommandQ(*this);
+                    }
+                    else
+                    {
+                        sc.forwardStatusline(string(DENIED_STR) + format(_(" insufficient access level (command needs %s, you have %s)\n"),
+                                                                     gAccessLevelNames[al], gAccessLevelNames[sc.accessLevel]));
+                    }
+                }
+                else
+                {
+                    sc.commandNotFound(format(_("no such core command '%s'."), words[0].c_str()));
+                }
+            }
+            else
+            {
+                sc.forwardStatusline(string(ERROR_STR) + format(_(" core process with ID %d has gone away"), sc.coreID));
+                flog(LOG_INFO, _("client %d has invalid coreID %d, zeroing.\n"), sc.clientID, sc.coreID);
+                sc.coreID= 0;
+            }
+        }
+
+        // process a fully transferred command
+        // deletes ce
+        void processCommand(CommandQEntry *ce, SessionContext &sc)
+        {
+            vector<string> words= Cli::splitString(ce->command.c_str(), " \t\n");
+            if(words.empty()) { delete(ce); return; }
+            ServCmd *cmd= (ServCmd*)cli.findCommand(words[0]);
+            if(cmd)
+            {
+                // execute server command
+                sc.stats.servCommandsSent++;
+                if(ce->dataset.size())  // currently, no server command takes a data set.
+                    sc.forwardStatusline(string(FAIL_STR) + " " + words[0] + _(" accepts no data set.\n"));
+                else if( ce->command.find(">")!=string::npos || ce->command.find("<")!=string::npos )
+                    sc.forwardStatusline(string(FAIL_STR) + _(" input/output of server commands can't be redirected.\n"));
+                else cli.execute(cmd, words, sc);
+                delete ce;
+            }
+            else if(sc.coreID)
+            {
+                forwardToCore(ce, sc);
+            }
+            else
+            {
+                // no server command and not connected to core
+                sc.commandNotFound(format(_("no such server command '%s'."), words[0].c_str()));
+                delete ce;
+            }
+        }
+        private:
+
+        // handle a line of text arriving from a client.
+        void lineFromClient(string line, SessionContext &sc, double timestamp, bool fromServerQueue= false)
+        {
+            if(line.rfind('\n')!=line.size()-1) line.append("\n");
+            
+            sc.stats.linesSent++;
+            sc.stats.bytesSent+= line.length();
+            
+            if(sc.curCommand)
+            {
+                if(sc.curCommand->acceptsData && (!sc.curCommand->dataFinished))
+                {
+                    sc.curCommand->appendToDataset(line);
+                    if(sc.curCommand->flushable())
+                    {
+                        processCommand(sc.curCommand, sc);
+                        sc.curCommand= NULL;
+                    }
+                }
+                else
+                {
+                    flog(LOG_INFO, "queuing: '%s", line.c_str());
+                    sc.lineQueue.push(line);   // must finish pending core commands first, queue this line for later processing
+                }
+            }
+            else
+            {
+                //flog(LOG_INFO, "new command: %s", line.c_str());
+                CoreInstance *ci= findInstance(sc.coreID);
+                if(!fromServerQueue && (sc.lineQueue.size() || (ci && ci->hasDataForClient(sc.clientID))))
+                {
+                    //flog(LOG_INFO, "queuing.\n");
+                    sc.lineQueue.push(line);
+                }
+                else 
+                {
+                    CommandQEntry *ce= new CommandQEntry(sc.clientID, line);
+                    if(ce->flushable())
+                        //flog(LOG_INFO, "flushable.\n"),
+                        processCommand(ce, sc);
+                    else
+                        //flog(LOG_INFO, "has data set.\n"),
+                        sc.curCommand= ce;
+                }
+            }
+        }
+
+#else   // old line handling
+
+        // send a command from this client to the core it is connected to.
+        void sendCoreCommand(SessionContext& sc, string line, bool hasDataSet, vector<string> *cmdwords= 0)
+        {
+            const vector<string>& words= (cmdwords? *cmdwords: Cli::splitString(line.c_str()));
+            sc.stats.coreCommandsSent++;
+            CoreCommandInfo *cci= findCoreCommand(words[0]);
+            if(cci)
+            {
+                AccessLevel al= cci->accessLevel;
+                if( line.find(">")!=string::npos || line.find("<")!=string::npos )
+                    al= ACCESS_ADMIN;   // i/o redirection requires admin level.
+                if(sc.accessLevel>=al)
+                {
+                    // write command to instance
+                    CoreInstance *ci= findInstance(sc.coreID);
+                    if(ci) ci->queueCommand(line, sc.clientID, hasDataSet), sc.stats.linesQueued++;
+                    else sc.writef(_("%s client has invalid core ID %u\n"), FAIL_STR, sc.coreID);
+                }
+                else
+                {
+                    if(hasDataSet)
+                        // read data set, then print error message.
+                        sc.invalidDatasetStatus= CMD_ACCESSDENIED,
+                        sc.invalidDatasetMsg= format(_("%s insufficient access level (command needs %s, you have %s)\n"), DENIED_STR,
+                                                     gAccessLevelNames[al], gAccessLevelNames[sc.accessLevel]);
+                    else
+                        // forward line as if it came from core so that the http code can do its stuff
+                        sc.forwardStatusline(string(DENIED_STR " ") + format(_("insufficient access level (command needs %s, you have %s)\n"),
+                                             gAccessLevelNames[al], gAccessLevelNames[sc.accessLevel]));
+                }
+            }
+            else
+            {
+                if(hasDataSet)
+                    // read data set, then print error message.
+                    sc.invalidDatasetStatus= CMD_NOT_FOUND,
+                    sc.invalidDatasetMsg= format(_("no such core command '%s'."), words[0].c_str());
+                else
+                    // print error message.
+                    sc.commandNotFound(format(_("no such core command '%s'."), words[0].c_str()));
+            }
+        }
 
         // handle a line of text arriving from a client.
         void lineFromClient(string line, SessionContext &sc, double timestamp, bool fromServerQueue= false)
@@ -696,6 +815,7 @@ class Graphserv
                     sc.commandNotFound(format(_("no such server command '%s'."), words[0].c_str()));
             }
         }
+#endif
 
         // handle a line of text arriving from a HTTP client
         void lineFromHTTPClient(string line, HTTPSessionContext &sc, double timestamp)

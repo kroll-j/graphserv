@@ -20,10 +20,10 @@ graphcore/graphcore.dbg:	graphcore/src/*
 		make -C graphcore Debug
 
 graphserv:	src/main.cpp src/*.h graphcore/src/*.h graphcore/graphcore
-		g++ $(CCFLAGS) -O3 -march=native src/main.cpp $(LDFLAGS) -ographserv
+		g++ $(CCFLAGS) -DSESSIONCONTEXTLINEQUEUING=$(SESSIONCONTEXTLINEQUEUING) -O3 -march=native src/main.cpp $(LDFLAGS) -ographserv
 
 graphserv.dbg:	src/main.cpp src/*.h graphcore/src/*.h graphcore/graphcore
-		g++ $(CCFLAGS) -DDEBUG_COMMANDS -ggdb src/main.cpp $(LDFLAGS) -ographserv.dbg
+		g++ $(CCFLAGS) -DSESSIONCONTEXTLINEQUEUING=$(SESSIONCONTEXTLINEQUEUING) -DDEBUG_COMMANDS -ggdb src/main.cpp $(LDFLAGS) -ographserv.dbg
 
 # updatelang: update the language files
 # running this will generate changes in the repository

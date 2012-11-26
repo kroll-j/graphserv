@@ -36,6 +36,8 @@ struct SessionContext: public NonblockWriter
     CommandStatus invalidDatasetStatus;
     string invalidDatasetMsg;   // the status line to send after invalid data set has been read
     double shutdownTime;        // time when shutdown was called on the socket, or 0 if the connection is running.
+    
+    CommandQEntry *curCommand;  // if non-NULL, command which is currently being transferred to the server but not yet processed
 
     // some statistics about this connection. currently mostly used for debugging.
     struct Stats
@@ -65,7 +67,8 @@ struct SessionContext: public NonblockWriter
 	SessionContext(class Graphserv &app_, uint32_t cID, int sock, ConnectionType connType):
 		clientID(cID), accessLevel(ACCESS_READ), connectionType(connType), 
 		coreID(0), sockfd(sock), app(app_),
-		chokeTime(0), invalidDatasetStatus(CMD_SUCCESS), shutdownTime(0)
+		chokeTime(0), invalidDatasetStatus(CMD_SUCCESS), shutdownTime(0), 
+        curCommand(NULL)
 	{
 		setWriteFd(sockfd);
 	}

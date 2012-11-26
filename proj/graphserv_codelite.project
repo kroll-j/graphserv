@@ -17,6 +17,7 @@
     <File Name="../src/const.h"/>
     <File Name="../src/session.h"/>
     <File Name="../crashlog.txt"/>
+    <File Name="../Makefile"/>
   </VirtualDirectory>
   <Dependencies Name="Debug"/>
   <Dependencies Name="Release"/>
@@ -39,6 +40,7 @@
       <General OutputFile="/mnt/cryptroot/home/johannes/code/graphserv/graphserv.dbg" IntermediateDirectory="" Command="/mnt/cryptroot/home/johannes/code/graphserv/graphserv.dbg" CommandArguments="-l eia" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="/mnt/cryptroot/home/johannes/code/graphserv/" PauseExecWhenProcTerminates="yes"/>
       <Environment EnvVarSetName="&lt;Use Defaults&gt;" DbgSetName="&lt;Use Defaults&gt;">
         <![CDATA[
+      
       
       
       
@@ -91,7 +93,7 @@
       <CustomBuild Enabled="yes">
         <RebuildCommand>make clean; make</RebuildCommand>
         <CleanCommand>make clean</CleanCommand>
-        <BuildCommand>make STDERR_DEBUGGING=1</BuildCommand>
+        <BuildCommand>make STDERR_DEBUGGING=1 SESSIONCONTEXTLINEQUEUING=1</BuildCommand>
         <PreprocessFileCommand/>
         <SingleFileCommand/>
         <MakefileGenerationCommand/>
