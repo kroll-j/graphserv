@@ -61,7 +61,7 @@ class LineRecvQ
 		deque<string> nextLines(const string& str)
 		{
 			deque<string> lineQueue;
-			for(string::const_iterator it= str.begin(); it!=str.end(); it++)
+			for(string::const_iterator it= str.begin(); it!=str.end(); ++it)
 			{
 				readbuf+= *it;
 				if(*it=='\n')
@@ -246,7 +246,7 @@ class CoreInstance: public NonblockWriter
         // find *last* command for this client in queue
         CommandQEntry *findLastClientCommand(uint32_t clientID)
         {
-            for(commandQ_t::reverse_iterator it= commandQ.rbegin(); it!=commandQ.rend(); it++)
+            for(commandQ_t::reverse_iterator it= commandQ.rbegin(); it!=commandQ.rend(); ++it)
                 if(it->clientID==clientID)
                     return & (*it);
             return 0;
@@ -256,7 +256,7 @@ class CoreInstance: public NonblockWriter
         {
             // this is inefficient because of the nature of deque<>, and currently not used.
             // commands from disconnected clients are removed on flush.
-            for(commandQ_t::iterator it= commandQ.begin(); it!=commandQ.end(); it++)
+            for(commandQ_t::iterator it= commandQ.begin(); it!=commandQ.end(); ++it)
             {
                 if(it->clientID==clientID)
                 {

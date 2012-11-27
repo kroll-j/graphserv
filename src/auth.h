@@ -130,7 +130,7 @@ class PasswordAuth: public Authority
             // so that each user gets the maximum specified:
             // a user in both "admin" and "write" groups gets admin access.
             vector<string> usernames= splitLine(fields[3], ',');
-            for(vector<string>::iterator it= usernames.begin(); it!=usernames.end(); it++)
+            for(vector<string>::iterator it= usernames.begin(); it!=usernames.end(); ++it)
             {
                 map<string,userInfo>::iterator user= newUsers.find(*it);
                 if(user!=newUsers.end() && level>user->second.accessLevel)

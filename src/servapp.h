@@ -36,7 +36,7 @@ class Graphserv
 
         ~Graphserv()
         {
-            for(map<string,Authority*>::iterator it= authorities.begin(); it!=authorities.end(); it++)
+            for(map<string,Authority*>::iterator it= authorities.begin(); it!=authorities.end(); ++it)
                 delete it->second;
             authorities.clear();
         }
@@ -82,12 +82,12 @@ class Graphserv
                 if(httpSocket) fd_add(readfds, httpSocket, maxfd);
 
                 // deferred removal of clients
-                for(set<uint32_t>::iterator i= clientsToRemove.begin(); i!=clientsToRemove.end(); i++)
+                for(set<uint32_t>::iterator i= clientsToRemove.begin(); i!=clientsToRemove.end(); ++i)
                     removeSession(*i);
                 clientsToRemove.clear();
 
                 // init fd set for select: add client fds
-                for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
+                for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); ++i )
                 {
                     SessionContext *sc= i->second;
                     double d= time-sc->stats.lastTime;
@@ -111,7 +111,7 @@ class Graphserv
                 }
 
                 // init fd set for select: add core fds
-                for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++ )
+                for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); ++i )
                 {
                     CoreInstance *ci= i->second;
                     fd_add(readfds, ci->getReadFd(), maxfd);
@@ -133,11 +133,11 @@ class Graphserv
                     {
                         case EBADF:
                             // a file descriptor is bad, find out which and remove the client or core.
-                            for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
+                            for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); ++i )
                                 if( !i->second->writeBufferEmpty() && fcntl(i->second->sockfd, F_GETFL)==-1 )
                                     flog(LOG_ERROR, _("bad fd, removing client %d.\n"), i->second->clientID),
                                     forceClientDisconnect(i->second);
-                            for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++ )
+                            for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); ++i )
                                 if( fcntl(i->second->getReadFd(), F_GETFL)==-1 ||
                                     (!i->second->writeBufferEmpty() && fcntl(i->second->getWriteFd(), F_GETFL)==-1) )
                                     flog(LOG_ERROR, _("bad fd, removing core %d.\n"), i->second->getID()),
@@ -162,7 +162,7 @@ class Graphserv
                         flog(LOG_ERROR, _("couldn't create connection.\n"));
 
                 // loop through all the session contexts, handle incoming data, flush outgoing data if possible.
-                for( map<uint32_t,SessionContext*>::iterator it= sessionContexts.begin(); it!=sessionContexts.end(); it++ )
+                for( map<uint32_t,SessionContext*>::iterator it= sessionContexts.begin(); it!=sessionContexts.end(); ++it )
                 {
                     SessionContext &sc= *it->second;
                     int sockfd= sc.sockfd;
@@ -211,7 +211,7 @@ class Graphserv
                 vector<CoreInstance*> coresToRemove;
 
                 // loop through all the core instances, handle incoming data, flush outgoing data if possible.
-                for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); i++ )
+                for( map<uint32_t,CoreInstance*>::iterator i= coreInstances.begin(); i!=coreInstances.end(); ++i )
                 {
                     CoreInstance *ci= i->second;
                     if(FD_ISSET(ci->getReadFd(), &readfds))
@@ -261,7 +261,7 @@ class Graphserv
                     else if(FD_ISSET(ci->getStderrReadFd(), &readfds))
                     {
                         deque<string> lines= ci->stderrQ.nextLines(ci->getStderrReadFd());
-						for(deque<string>::const_iterator it= lines.begin(); it!=lines.end(); it++)
+						for(deque<string>::const_iterator it= lines.begin(); it!=lines.end(); ++it)
 							flog(LOG_INFO, "[%s] %s", ci->getName().c_str(), it->c_str());
 					}
                     
@@ -273,7 +273,7 @@ class Graphserv
                     removeCoreInstance(coresToRemove[i]);
 
                 // go through any HTTP session contexts immediately after i/o.
-                for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); i++ )
+                for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); ++i )
                 {
                     SessionContext *sc= i->second;
                     CoreInstance *ci;
@@ -312,7 +312,7 @@ class Graphserv
         // find a named instance.
         CoreInstance *findNamedInstance(string name, bool onlyRunning= true)
         {
-            for(map<uint32_t,CoreInstance*>::iterator it= coreInstances.begin(); it!=coreInstances.end(); it++)
+            for(map<uint32_t,CoreInstance*>::iterator it= coreInstances.begin(); it!=coreInstances.end(); ++it)
                 if( it->second->getName()==name && (onlyRunning? it->second->isRunning(): true) )
                     return it->second;
             return 0;

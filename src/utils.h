@@ -154,7 +154,7 @@ class NonblockWriter
         size_t getWritebufferSize()
         {
             size_t ret= 0;
-            for(deque<string>::iterator it= buffer.begin(); it!=buffer.end(); it++)
+            for(deque<string>::iterator it= buffer.begin(); it!=buffer.end(); ++it)
                 ret+= it->length();
             return ret;
         }

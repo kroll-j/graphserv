@@ -107,7 +107,7 @@ void CoreInstance::flushCommandQ(class Graphserv &app)
     {
         CommandQEntry &c= commandQ.front();
         write(c.command);
-        for(deque<string>::iterator it= c.dataset.begin(); it!=c.dataset.end(); it++)
+        for(deque<string>::iterator it= c.dataset.begin(); it!=c.dataset.end(); ++it)
             write(*it);
         lastClientID= c.clientID;
         expectingReply= true;
@@ -379,7 +379,7 @@ class ccListGraphs: public ServCmd_RTOther
             cliSuccess(_("running graphs:\n"));
             sc.forwardStatusline(lastStatusMessage);
             map<uint32_t,CoreInstance*>& cores= app.getCoreInstances();
-            for(map<uint32_t,CoreInstance*>::iterator it= cores.begin(); it!=cores.end(); it++)
+            for(map<uint32_t,CoreInstance*>::iterator it= cores.begin(); it!=cores.end(); ++it)
                 if(it->second->isRunning())
                     sc.forwardDataset(it->second->getName() + "\n");
             sc.forwardDataset("\n");
@@ -437,7 +437,7 @@ class ccServerStats: public ServCmd_RTOther
             // this currently just outputs the minimal info: number of cores. should return more useful info.
             map<uint32_t,CoreInstance*>& cores= app.getCoreInstances();
             size_t runningCores= 0;
-            for(map<uint32_t,CoreInstance*>::iterator it= cores.begin(); it!=cores.end(); it++)
+            for(map<uint32_t,CoreInstance*>::iterator it= cores.begin(); it!=cores.end(); ++it)
                 if(it->second->isRunning())
                     runningCores++;
             sc.forwardDataset(format("NCores,%zu\n", runningCores));
@@ -529,7 +529,7 @@ class ccInfo: public ServCmd_RTOther
 
             sc.writef("Cores: %d\n", app.coreInstances.size());
 
-            for(map<uint32_t,CoreInstance*>::iterator it= app.coreInstances.begin(); it!=app.coreInstances.end(); it++)
+            for(map<uint32_t,CoreInstance*>::iterator it= app.coreInstances.begin(); it!=app.coreInstances.end(); ++it)
             {
                 CoreInstance *ci= it->second;
                 sc.writef("Core %d:\n", ci->getID());
@@ -541,7 +541,7 @@ class ccInfo: public ServCmd_RTOther
                 sc.writef("\n");
             }
 
-            for(map<uint32_t,SessionContext*>::iterator it= app.sessionContexts.begin(); it!=app.sessionContexts.end(); it++)
+            for(map<uint32_t,SessionContext*>::iterator it= app.sessionContexts.begin(); it!=app.sessionContexts.end(); ++it)
             {
                 SessionContext *ci= it->second;
                 sc.writef("Session ID %d:\n", ci->clientID);
@@ -624,7 +624,7 @@ class ccHelp: public ServCmd_RTOther
                     // if connected, show list of core commands too.
                     // sc.forwardDataset(string("# ") + _("the following are the core commands:\n"));
                     string line;
-                    for(vector<string>::iterator it= words.begin(); it!=words.end(); it++)
+                    for(vector<string>::iterator it= words.begin(); it!=words.end(); ++it)
                         line+= *it,
                         line+= " ";
                     line+= "\n";
@@ -651,7 +651,7 @@ class ccHelp: public ServCmd_RTOther
                 {
                     // forward the command to the core
                     string line;
-                    for(vector<string>::iterator it= words.begin(); it!=words.end(); it++)
+                    for(vector<string>::iterator it= words.begin(); it!=words.end(); ++it)
                         line+= *it,
                         line+= " ";
                     line+= "\n";
