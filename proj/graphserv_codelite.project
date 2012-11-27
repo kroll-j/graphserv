@@ -44,6 +44,7 @@
       
       
       
+      
       ]]>
       </Environment>
       <Debugger IsRemote="no" RemoteHostName="" RemoteHostPort="" DebuggerPath="">
@@ -93,7 +94,7 @@
       <CustomBuild Enabled="yes">
         <RebuildCommand>make clean; make</RebuildCommand>
         <CleanCommand>make clean</CleanCommand>
-        <BuildCommand>make STDERR_DEBUGGING=1 SESSIONCONTEXTLINEQUEUING=1</BuildCommand>
+        <BuildCommand>make STDERR_DEBUGGING=1</BuildCommand>
         <PreprocessFileCommand/>
         <SingleFileCommand/>
         <MakefileGenerationCommand/>

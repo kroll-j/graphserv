@@ -33,6 +33,7 @@ struct CommandQEntry
     
     CommandQEntry(uint32_t clientID_, string command_): command(command_), clientID(clientID_), acceptsData(false), dataFinished(true)
     {
+        sendBeginTime= getTime();
         if(lineIndicatesDataset(command))
             acceptsData= true, 
             dataFinished= false;

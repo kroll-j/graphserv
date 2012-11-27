@@ -551,7 +551,7 @@ class Graphserv
             }
             return false;
         }
-#ifdef SESSIONCONTEXTLINEQUEUING
+#ifndef NOSESSIONCONTEXTBUFFER
         public:
         void forwardToCore(CommandQEntry *ce, SessionContext &sc)
         {
@@ -601,7 +601,7 @@ class Graphserv
             {
                 // execute server command
                 sc.stats.servCommandsSent++;
-                if(ce->dataset.size())  // currently, no server command takes a data set.
+                if(!ce->dataset.empty())  // currently, no server command takes a data set.
                     sc.forwardStatusline(string(FAIL_STR) + " " + words[0] + _(" accepts no data set.\n"));
                 else if( ce->command.find(">")!=string::npos || ce->command.find("<")!=string::npos )
                     sc.forwardStatusline(string(FAIL_STR) + _(" input/output of server commands can't be redirected.\n"));
@@ -670,6 +670,7 @@ class Graphserv
 
 #else   // old line handling
 
+        public:
         // send a command from this client to the core it is connected to.
         void sendCoreCommand(SessionContext& sc, string line, bool hasDataSet, vector<string> *cmdwords= 0)
         {
@@ -712,7 +713,8 @@ class Graphserv
                     sc.commandNotFound(format(_("no such core command '%s'."), words[0].c_str()));
             }
         }
-
+        
+        private:
         // handle a line of text arriving from a client.
         void lineFromClient(string line, SessionContext &sc, double timestamp, bool fromServerQueue= false)
         {

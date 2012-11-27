@@ -112,6 +112,7 @@ class PasswordAuth: public Authority
             if(fields.size()!=4 || fields[0].empty())
             {
                 flog(LOG_ERROR, _("PasswordAuth: invalid line in group file\n"));
+                fclose(f);
                 return false;
             }
             AccessLevel level;
@@ -121,6 +122,7 @@ class PasswordAuth: public Authority
             else
             {
                 flog(LOG_ERROR, _("PasswordAuth: invalid access level '%s' in group file\n"), fields[0].c_str());
+                fclose(f);
                 return false;
             }
 
@@ -139,6 +141,7 @@ class PasswordAuth: public Authority
         // save cache only after we're successfully finished
         users.clear();
         users= newUsers;
+        fclose(f);
         return true;
     }
 

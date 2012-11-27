@@ -628,7 +628,7 @@ class ccHelp: public ServCmd_RTOther
                         line+= *it,
                         line+= " ";
                     line+= "\n";
-#ifdef SESSIONCONTEXTLINEQUEUING
+#ifndef NOSESSIONCONTEXTBUFFER
                     app.forwardToCore(new CommandQEntry(sc.clientID, line), sc);
 #else
                     app.sendCoreCommand(sc, line, false, &words);
@@ -655,7 +655,7 @@ class ccHelp: public ServCmd_RTOther
                         line+= *it,
                         line+= " ";
                     line+= "\n";
-#ifdef SESSIONCONTEXTLINEQUEUING
+#ifndef NOSESSIONCONTEXTBUFFER
                     app.forwardToCore(new CommandQEntry(sc.clientID, line), sc);
 #else
                     app.sendCoreCommand(sc, line, false, &words);
@@ -740,7 +740,7 @@ class ccShutdown: public ServCmd_RTVoid
 
             // send the command to the core, mark the core as no longer running.
             // the client will still receive the reply from the core.
-#ifdef SESSIONCONTEXTLINEQUEUING
+#ifndef NOSESSIONCONTEXTBUFFER
             app.forwardToCore(new CommandQEntry(sc.clientID, "shutdown\n"), sc);
 #else
             app.sendCoreCommand(sc, "shutdown\n", false);
