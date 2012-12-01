@@ -37,26 +37,21 @@
       </Compiler>
       <Linker Options="" Required="yes"/>
       <ResourceCompiler Options="" Required="no"/>
-      <General OutputFile="/mnt/cryptroot/home/johannes/code/graphserv/graphserv.dbg" IntermediateDirectory="" Command="/mnt/cryptroot/home/johannes/code/graphserv/graphserv.dbg" CommandArguments="-l eia" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="/mnt/cryptroot/home/johannes/code/graphserv/" PauseExecWhenProcTerminates="yes"/>
+      <General OutputFile="$(ProjectPath)/../graphserv.dbg" IntermediateDirectory="" Command="$(ProjectPath)/../graphserv.dbg" CommandArguments="-l eia -c graphcore/graphcore.dbg" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="$(ProjectPath)/../" PauseExecWhenProcTerminates="yes"/>
       <Environment EnvVarSetName="&lt;Use Defaults&gt;" DbgSetName="&lt;Use Defaults&gt;">
-        <![CDATA[
-      
-      
-      
-      
-      
-      ]]>
+        <![CDATA[]]>
       </Environment>
       <Debugger IsRemote="no" RemoteHostName="" RemoteHostPort="" DebuggerPath="">
         <PostConnectCommands/>
-        <StartupCommands/>
+        <StartupCommands>set follow-fork-mode child
+</StartupCommands>
       </Debugger>
       <PreBuild/>
       <PostBuild/>
       <CustomBuild Enabled="yes">
         <RebuildCommand>make clean; make Debug</RebuildCommand>
         <CleanCommand>make clean</CleanCommand>
-        <BuildCommand>make Debug</BuildCommand>
+        <BuildCommand>make Debug STDERR_DEBUGGING=1</BuildCommand>
         <PreprocessFileCommand/>
         <SingleFileCommand/>
         <MakefileGenerationCommand/>
@@ -80,9 +75,10 @@
       </Compiler>
       <Linker Options="-O2" Required="yes"/>
       <ResourceCompiler Options="" Required="no"/>
-      <General OutputFile="$(ProjectPath)/../graphserv.dbg" IntermediateDirectory="" Command="$(ProjectPath)/../graphserv.dbg" CommandArguments="-l eia" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="$(ProjectPath)/../" PauseExecWhenProcTerminates="yes"/>
+      <General OutputFile="$(ProjectPath)/../graphserv.dbg" IntermediateDirectory="" Command="$(ProjectPath)/../graphserv.dbg" CommandArguments="-l eia -c graphcore/graphcore" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="$(ProjectPath)/../" PauseExecWhenProcTerminates="yes"/>
       <Environment EnvVarSetName="&lt;Use Defaults&gt;" DbgSetName="&lt;Use Defaults&gt;">
-        <![CDATA[]]>
+        <![CDATA[
+      ]]>
       </Environment>
       <Debugger IsRemote="no" RemoteHostName="" RemoteHostPort="" DebuggerPath="">
         <PostConnectCommands/>

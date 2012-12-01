@@ -246,8 +246,8 @@ class Graphserv
                                     ci->linebuf.clear();
                                     // if this was the last line the client was waiting for, 
                                     // execute its queued commands now.
-                                    if( clientWasWaiting && (!sc->isWaitingForCoreReply()) )
-                                        while(!sc->lineQueue.empty())
+                                    if( clientWasWaiting )
+                                        while(!sc->lineQueue.empty() && (!sc->isWaitingForCoreReply()))
                                         {
                                             string& line= sc->lineQueue.front();
                                             flog(LOG_INFO, "execing queued line from client: '%s", line.c_str());
@@ -649,8 +649,8 @@ class Graphserv
             else
             {
                 //flog(LOG_INFO, "new command: %s", line.c_str());
-                CoreInstance *ci= findInstance(sc.coreID);
-                if(!fromServerQueue && (sc.lineQueue.size() || (ci && ci->hasDataForClient(sc.clientID))))
+//                CoreInstance *ci= findInstance(sc.coreID);
+                if(!fromServerQueue && (sc.lineQueue.size() || sc.isWaitingForCoreReply()))  //(ci && ci->hasDataForClient(sc.clientID))))
                 {
                     //flog(LOG_INFO, "queuing.\n");
                     sc.lineQueue.push(line);

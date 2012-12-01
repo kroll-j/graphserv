@@ -131,6 +131,7 @@ void SessionContext::writeFailed(int _errno)
 // true if this session is waiting for a reply from its connected core instance.
 bool SessionContext::isWaitingForCoreReply()
 {
+    if(curCommand) return true;
     CoreInstance *instance= app.findInstance(coreID);
     if(!instance) return false;
     return instance->hasDataForClient(clientID);
@@ -905,7 +906,7 @@ int main(int argc, char *argv[])
     signal(SIGPIPE, SIG_IGN);
     
     // install SIGCHLD handler
-    handleSigchld();
+//    handleSigchld();
 
     // instantiate app and kick off main loop.
     Graphserv s(tcpPort, httpPort, htpwFilename, groupFilename, corePath);

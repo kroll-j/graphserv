@@ -11,6 +11,8 @@
     <File Name="../../graphcore/src/main.cpp"/>
     <File Name="../../graphcore/src/clibase.h"/>
     <File Name="../../graphcore/src/corecommands.h"/>
+    <File Name="../../graphcore/src/digraph.h"/>
+    <File Name="../../graphcore/src/main.h"/>
   </VirtualDirectory>
   <Settings Type="Executable">
     <GlobalSettings>
@@ -31,6 +33,7 @@
       <General OutputFile="$(IntermediateDirectory)/$(ProjectName)" IntermediateDirectory="./Debug" Command="$(WorkspacePath)/../../graphcore/graphcore.dbg" CommandArguments="" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="$(IntermediateDirectory)" PauseExecWhenProcTerminates="yes"/>
       <Environment EnvVarSetName="&lt;Use Defaults&gt;" DbgSetName="&lt;Use Defaults&gt;">
         <![CDATA[
+      
       
       ]]>
       </Environment>
@@ -69,7 +72,8 @@
       <ResourceCompiler Options="" Required="no"/>
       <General OutputFile="$(IntermediateDirectory)/../graphcore/$(ProjectName)" IntermediateDirectory="./Release" Command="$(WorkspacePath)/../../graphcore/graphcore" CommandArguments="" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="$(IntermediateDirectory)" PauseExecWhenProcTerminates="yes"/>
       <Environment EnvVarSetName="&lt;Use Defaults&gt;" DbgSetName="&lt;Use Defaults&gt;">
-        <![CDATA[]]>
+        <![CDATA[
+      ]]>
       </Environment>
       <Debugger IsRemote="no" RemoteHostName="" RemoteHostPort="" DebuggerPath="">
         <PostConnectCommands/>
