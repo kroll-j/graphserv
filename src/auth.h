@@ -92,11 +92,13 @@ class PasswordAuth: public Authority
             if(fields.size()!=2 || fields[0].empty() || fields[1].size()!=13)
             {
                 flog(LOG_ERROR, _("PasswordAuth: invalid line in htpasswd file\n"));
+                fclose(f);
                 return false;
             }
             userInfo ui= { fields[1], ACCESS_READ };
             newUsers[fields[0]]= ui;
         }
+        fclose(f);
 
         f= fopen(groupFilename.c_str(), "r");
         if(!f)

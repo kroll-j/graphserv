@@ -18,15 +18,14 @@
 #ifndef SERVAPP_H
 #define SERVAPP_H
 
-
-
 // main application class.
 class Graphserv
 {
     public:
         Graphserv(int _tcpPort, int _httpPort, const string& htpwFilename, const string& groupFilename, const string& _corePath):
             tcpPort(_tcpPort), httpPort(_httpPort), corePath(_corePath),
-            cli(*this), linesFromClients(0)
+            coreIDCounter(0), sessionIDCounter(0),
+            cli(*this), linesFromClients(0), quit(false)
         {
             initCoreCommandTable();
 
@@ -36,9 +35,17 @@ class Graphserv
 
         ~Graphserv()
         {
-            for(map<string,Authority*>::iterator it= authorities.begin(); it!=authorities.end(); ++it)
+            for(auto it= authorities.begin(); it!=authorities.end(); ++it)
                 delete it->second;
             authorities.clear();
+            
+            for(auto it= coreInstances.begin(); it!=coreInstances.end(); ++it)
+                delete it->second;
+            coreInstances.clear();
+            
+            for(auto it= sessionContexts.begin(); it!=sessionContexts.end(); ++it)
+                delete it->second;
+            sessionContexts.clear();
         }
 
         Authority *findAuthority(const string& name)
@@ -62,14 +69,14 @@ class Graphserv
                 flog(LOG_CRIT, _("couldn't create socket for HTTP connections (port %d).\n"), httpPort);
                 return false;
             }
+            
+            handleSigint();
 
             fd_set readfds, writefds;
-
-
             int maxfd;
 
             flog(LOG_INFO, "entering main loop. TCP port: %d, HTTP port: %d\n", tcpPort, httpPort);
-            while(true)
+            while(!quit)
             {
                 double time= getTime();
 
@@ -128,10 +135,10 @@ class Graphserv
                 int r= select(maxfd+1, &readfds, &writefds, 0, &timeout);
                 if(r<0)
                 {
-                    logerror("select()");
                     switch(errno)
                     {
                         case EBADF:
+                            logerror("select()");
                             // a file descriptor is bad, find out which and remove the client or core.
                             for( map<uint32_t,SessionContext*>::iterator i= sessionContexts.begin(); i!=sessionContexts.end(); ++i )
                                 if( !i->second->writeBufferEmpty() && fcntl(i->second->sockfd, F_GETFL)==-1 )
@@ -143,8 +150,12 @@ class Graphserv
                                     flog(LOG_ERROR, _("bad fd, removing core %d.\n"), i->second->getID()),
                                     removeCoreInstance(i->second);
                             continue;
+                        
+                        case EINTR:
+                            continue;
 
                         default:
+                            logerror("select()");
                             return false;
                     }
                 }
@@ -410,8 +421,8 @@ class Graphserv
         };
         map<string,CoreCommandInfo> coreCommandInfos;
 
-        static uint32_t coreIDCounter;
-        static uint32_t sessionIDCounter;
+        uint32_t coreIDCounter;
+        uint32_t sessionIDCounter;
 
         map<uint32_t,CoreInstance*> coreInstances;
         map<uint32_t,SessionContext*> sessionContexts;
@@ -423,6 +434,32 @@ class Graphserv
         map<string,Authority*> authorities;
 
         uint32_t linesFromClients;
+        
+        bool quit;
+        
+        void handleSigint()
+        {
+            static auto sighandler= [this] (int signal, siginfo_t *si, void *context) -> void
+            {
+                static int ncalls= 0;
+                if(ncalls==0)
+                    flog(LOG_CRIT, "hit ctrl-c again to quit\n");
+                else if(ncalls==1)
+                    flog(LOG_CRIT, "quitting\n"),
+                    this->quit= true;
+                else
+                    flog(LOG_CRIT, "quitting morer\n"),
+                    exit(1);
+                ++ncalls;
+            };
+            static struct sigaction sa;
+            sa.sa_flags= SA_SIGINFO|SA_RESTART;
+            sa.sa_sigaction= [] (int signal, siginfo_t *si, void *context) -> void
+            {
+                sighandler(signal, si, context);
+            };
+            sigaction(SIGINT, &sa, 0);
+        }
 
         // create a reusable socket listening on the given port.
         int openListenSocket(int port)
@@ -536,7 +573,8 @@ class Graphserv
             {
                 flog(LOG_INFO, "removing client %d\n", it->second->clientID);
                 CoreInstance *ci;
-                if( it->second->coreID && (ci= findInstance(it->second->coreID)) )
+                if( it->second->coreID && 
+                    (ci= findInstance(it->second->coreID)) )
                 {
                     CommandQEntry *cqe= ci->findLastClientCommand(it->second->clientID);
                     if(cqe && cqe->acceptsData && (!cqe->dataFinished))
@@ -588,6 +626,8 @@ class Graphserv
                 flog(LOG_INFO, _("client %d has invalid coreID %d, zeroing.\n"), sc.clientID, sc.coreID);
                 sc.coreID= 0;
             }
+            
+            delete ce;
         }
 
         // process a fully transferred command

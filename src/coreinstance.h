@@ -132,17 +132,33 @@ class CoreInstance: public NonblockWriter
             if(path==0) path= corePath.c_str();
 
             flog(LOG_INFO, _("starting core: %s\n"), path);
+            
+            // block sigint
+            sigset_t mask, omask;
+            sigemptyset(&mask);
+            sigaddset(&mask, SIGINT);
+            sigprocmask(SIG_BLOCK, &mask, &omask);
+            
+            // unblock sigint and change process group so that core doesn't receive graphserv's sigints 
+            // this has to be done in child+parent to avoid all possible race conditions
+            auto sigintfoo= [&] (pid_t pid)
+            {
+                sigprocmask(SIG_SETMASK, &omask, NULL);
+                setpgid(pid, pid);
+            };
 
             pid= fork();
             if(pid==-1)
             {
+                sigintfoo(pid);
                 setLastError(string("fork(): ") + strerror(errno));
                 return false;
             }
             else if(pid==0)
             {
                 // child process (core)
-
+                sigintfoo(pid);
+                
                 if(dup2(pipeToCore[0], STDIN_FILENO)==-1 || 
 				   dup2(pipeFromCore[1], STDOUT_FILENO)==-1 ||
 				   dup2(pipeFromCoreStderr[1], STDERR_FILENO)==-1)
@@ -172,13 +188,14 @@ class CoreInstance: public NonblockWriter
             else
             {
                 // parent process (server)
+                sigintfoo(pid);
 
                 close(pipeToCore[0]);
                 close(pipeFromCore[1]);
                 close(pipeFromCoreStderr[1]);
 
-                FILE *toCore= fdopen(pipeToCore[1], "w");
-                FILE *fromCore= fdopen(pipeFromCore[0], "r");
+                FILE *toCore= fdopen(dup(pipeToCore[1]), "w");
+                FILE *fromCore= fdopen(dup(pipeFromCore[0]), "r");
 
                 setlinebuf(toCore);
 
@@ -193,6 +210,7 @@ class CoreInstance: public NonblockWriter
                     if(strncmp(SUCCESS_STR, line, strlen(SUCCESS_STR))!=0)
                     {
                         setLastError(_("core replied: ") + string(line));
+                        fclose(toCore); fclose(fromCore);
                         return false;
                     }
                     char *coreProtocolVersion= line + strlen(SUCCESS_STR);
@@ -202,10 +220,12 @@ class CoreInstance: public NonblockWriter
                     {
                         setLastError(string(_("protocol version mismatch (server: ")) +
                                      stringify(PROTOCOL_VERSION) + " core: " + coreProtocolVersion + ")");
+                        fclose(toCore); fclose(fromCore);
                         return false;
                     }
                     setWriteFd(pipeToCore[1]);
                     processRunning= true;
+                    fclose(toCore); fclose(fromCore);
                     return true;
                 }
                 else    // fgets() failed
@@ -252,20 +272,6 @@ class CoreInstance: public NonblockWriter
             return 0;
         }
 
-        void removeClientCommands(uint32_t clientID)
-        {
-            // this is inefficient because of the nature of deque<>, and currently not used.
-            // commands from disconnected clients are removed on flush.
-            for(commandQ_t::iterator it= commandQ.begin(); it!=commandQ.end(); ++it)
-            {
-                if(it->clientID==clientID)
-                {
-                    commandQ.erase(it);
-                    it= commandQ.begin();
-                }
-            }
-        }
-
         // try writing out commands from queue to core process
         void flushCommandQ(class Graphserv &app);
 
@@ -298,7 +304,9 @@ class CoreInstance: public NonblockWriter
         {
 //            flog(LOG_INFO, "hasDataForClient: isclientid %d, expectingReply %d, expectingDataset %d, findLastClientCommand(clientID) %d\n",
 //                 lastClientID==clientID, expectingReply, expectingDataset, findLastClientCommand(clientID));
-            return (lastClientID==clientID && (expectingReply||expectingDataset)) || findLastClientCommand(clientID);
+            return (lastClientID==clientID && 
+                (expectingReply||expectingDataset)) 
+                    || findLastClientCommand(clientID);
         }
 
         // handle a line of text which was sent from the core process.

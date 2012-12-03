@@ -78,6 +78,7 @@ struct SessionContext: public NonblockWriter
         setNonblocking(sockfd, false);  // force output to be drained on close.
         flog(LOG_INFO, "closing session context socket %d\n", sockfd);
         close(sockfd);
+        if(curCommand) delete(curCommand);
     }
     
     // true if this session is waiting for a reply from its connected core instance.

@@ -777,10 +777,6 @@ ServCli::ServCli(Graphserv &_app): app(_app)
 
 
 
-// static member variables of main app class.
-uint32_t Graphserv::coreIDCounter= 0;
-uint32_t Graphserv::sessionIDCounter= 0;
-
 
 uint32_t logMask= (1<<LOG_ERROR);
 
@@ -830,7 +826,7 @@ void handleSigchld()
 {
     static struct sigaction sa;
     sa.sa_sigaction= sigchldHandler;
-    sa.sa_flags= SA_SIGINFO;
+    sa.sa_flags= SA_SIGINFO|SA_RESTART;
     sigaction(SIGCHLD, &sa, 0);
 }
 

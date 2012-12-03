@@ -75,10 +75,9 @@
       </Compiler>
       <Linker Options="-O2" Required="yes"/>
       <ResourceCompiler Options="" Required="no"/>
-      <General OutputFile="$(ProjectPath)/../graphserv.dbg" IntermediateDirectory="" Command="$(ProjectPath)/../graphserv.dbg" CommandArguments="-l eia -c graphcore/graphcore" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="$(ProjectPath)/../" PauseExecWhenProcTerminates="yes"/>
+      <General OutputFile="$(ProjectPath)/../graphserv" IntermediateDirectory="" Command="$(ProjectPath)/../graphserv" CommandArguments="-l eia -c graphcore/graphcore" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="$(ProjectPath)/../" PauseExecWhenProcTerminates="yes"/>
       <Environment EnvVarSetName="&lt;Use Defaults&gt;" DbgSetName="&lt;Use Defaults&gt;">
-        <![CDATA[
-      ]]>
+        <![CDATA[]]>
       </Environment>
       <Debugger IsRemote="no" RemoteHostName="" RemoteHostPort="" DebuggerPath="">
         <PostConnectCommands/>
@@ -90,7 +89,7 @@
       <CustomBuild Enabled="yes">
         <RebuildCommand>make clean; make</RebuildCommand>
         <CleanCommand>make clean</CleanCommand>
-        <BuildCommand>make STDERR_DEBUGGING=1</BuildCommand>
+        <BuildCommand>make STDERR_DEBUGGING=1 Release</BuildCommand>
         <PreprocessFileCommand/>
         <SingleFileCommand/>
         <MakefileGenerationCommand/>
