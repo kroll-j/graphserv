@@ -622,7 +622,7 @@ class Graphserv
             }
             else
             {
-                sc.forwardStatusline(string(ERROR_STR) + format(_(" core process with ID %d has gone away"), sc.coreID));
+                sc.forwardStatusline(string(ERROR_STR) + format(_(" core process with ID %d has gone away\n"), sc.coreID));
                 flog(LOG_INFO, _("client %d has invalid coreID %d, zeroing.\n"), sc.clientID, sc.coreID);
                 sc.coreID= 0;
             }
