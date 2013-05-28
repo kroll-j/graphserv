@@ -14,10 +14,10 @@ Release:	graphserv
 Debug:		graphserv.dbg
 
 graphcore/graphcore:	graphcore/src/*
-		make -C graphcore STDERR_DEBUGGING=$(STDERR_DEBUGGING) USE_MMAP_POOL=$(USE_MMAP_POOL) Release
+		+make -C graphcore STDERR_DEBUGGING=$(STDERR_DEBUGGING) USE_MMAP_POOL=$(USE_MMAP_POOL) Release
 
 graphcore/graphcore.dbg:	graphcore/src/*
-		make -C graphcore STDERR_DEBUGGING=$(STDERR_DEBUGGING) USE_MMAP_POOL=$(USE_MMAP_POOL) Debug
+		+make -C graphcore STDERR_DEBUGGING=$(STDERR_DEBUGGING) USE_MMAP_POOL=$(USE_MMAP_POOL) Debug
 
 graphserv:	src/main.cpp src/*.h graphcore/src/*.h graphcore/graphcore
 		g++ $(CCFLAGS) -O3 -march=native src/main.cpp $(LDFLAGS) -ographserv
@@ -30,6 +30,10 @@ graphserv.dbg:	src/main.cpp src/*.h graphcore/src/*.h graphcore/graphcore.dbg
 updatelang:	#
 		./update-lang.sh
 
+clean:		#
+		-rm graphserv graphserv.dbg graphcore/graphcore graphcore/graphcore.dbg
+
 # test:		Release Debug
 # 		python test/talkback.py test/graphserv.tb ./graphserv
 
+.PHONY:		updatelang clean
