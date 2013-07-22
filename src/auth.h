@@ -89,6 +89,7 @@ class PasswordAuth: public Authority
         {
             // read line in the form user:hash and stuff it into the cache
             vector<string> fields= splitLine(line);
+            if(fields.size==0) continue;
             if(fields.size()!=2 || fields[0].empty() || fields[1].size()!=13)
             {
                 flog(LOG_ERROR, _("PasswordAuth: invalid line in htpasswd file\n"));
@@ -111,6 +112,7 @@ class PasswordAuth: public Authority
         {
             // read line of the form accesslevel:::user1,user2,userX
             vector<string> fields= splitLine(line);
+            if(fields.size==0) continue;
             if(fields.size()!=4 || fields[0].empty())
             {
                 flog(LOG_ERROR, _("PasswordAuth: invalid line in group file\n"));
