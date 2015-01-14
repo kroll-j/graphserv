@@ -105,7 +105,7 @@ class CoreInstance: public NonblockWriter
             pipeFromCoreStderr[0]= pipeFromCoreStderr[1]= -1;
         }
 
-        ~CoreInstance()
+        virtual ~CoreInstance()
         {
             close(pipeToCore[1]);
             close(pipeFromCore[0]);
