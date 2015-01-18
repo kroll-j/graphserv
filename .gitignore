@@ -1,0 +1,14 @@
+*.dat
+scite-session
+SciTE.properties
+*.list
+*.tags
+*.mk
+graphserv-codelite.workspace.*
+*.layout
+graphserv_codelite.sh
+graphserv
+graphserv.dbg
+*.log
+
+
