@@ -293,7 +293,8 @@ class ccCreateGraph: public ServCmd_RTVoid
             if(app.findNamedInstance(words[1])) { cliFailure(_("an instance with this name already exists.\n")); return CMD_FAILURE; }
             CoreInstance *core= app.createCoreInstance(words[1]);
             if(!core) { cliFailure(_("Graphserv::createCoreInstance() failed.\n")); return CMD_FAILURE; }
-            if(!core->startCore()) { cliFailure("startCore(): %s\n", core->getLastError().c_str()); app.removeCoreInstance(core); return CMD_FAILURE; }
+            if(!core->startCore()) { cliFailure("startCore(): %s\n", core->getLastError().c_str()); return CMD_FAILURE; }
+            app.addCoreInstance(core);
             cliSuccess(_("spawned pid %d.\n"), (int)core->getPid());
             return CMD_SUCCESS;
         }

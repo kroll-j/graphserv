@@ -323,6 +323,8 @@ class CoreInstance: public NonblockWriter
             processRunning= false;
             return true;
         }
+        
+        event *readEvent, *stderrReadEvent, *writeEvent;
 
     private:
         uint32_t instanceID;

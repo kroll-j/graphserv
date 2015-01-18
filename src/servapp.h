@@ -82,6 +82,162 @@ class Graphserv
                 return mainloop_select();
         }
         
+        // called when a session socket is readable (level triggered)
+        template<ConnectionType CONNTYPE>
+        void cb_sessionReadable(evutil_socket_t fd, short what)
+        {
+            const size_t BUFSIZE= 128;
+            char buf[BUFSIZE];
+            SessionContext &sc= *libeventData.sessions[fd];
+            double time= getTime();
+            ssize_t sz= recv(fd, buf, sizeof(buf), 0);
+            auto closeSession= [this] (SessionContext& sc)
+            {
+                removeSession(sc.clientID);
+            };
+            if(sz==0)
+            {
+                flog(LOG_INFO, _("client %d: connection closed%s.\n"), sc.clientID, sc.shutdownTime? "": _(" by peer"));
+                closeSession(sc);
+            }
+            else if(sz<0)
+            {
+                flog(LOG_ERROR, _("recv() error, client %d, %d bytes in write buffer, %s\n"), sc.clientID, sc.getWritebufferSize(), strerror(errno));
+                closeSession(sc);
+            }
+            else
+            {
+                for(ssize_t i= 0; i<sz; i++)
+                {
+                    char c= buf[i];
+                    if(c=='\r') continue;   // someone is feeding us DOS newlines?
+                    sc.linebuf+= c;
+                    if(c=='\n')
+                    {
+                        //~ flog(LOG_INFO, "line from client: %s", sc.linebuf.c_str());
+
+                        linesFromClients++;
+
+                        if(CONNTYPE==CONN_HTTP)
+                            lineFromHTTPClient(sc.linebuf, *(HTTPSessionContext*)&sc, time);
+                        else
+                            lineFromClient(string(sc.linebuf), sc, time);
+                        sc.linebuf.clear();
+                    }
+                }
+            }
+        }
+
+        // called when a session socket is writable (edge triggered)
+        template<ConnectionType CONNTYPE>
+        void cb_sessionWritable(evutil_socket_t fd, short what)
+        {
+            flog(LOG_INFO, "session context writable event\n");
+            libeventData.sessions[fd]->flush();
+        }
+        
+        // called when a core pipe is readable (level triggered)
+        
+        // XXXXXXXXXX todo: handle different CB types (all callbacks)
+        void cb_coreReadable(evutil_socket_t fd, short what)
+        {
+            CoreInstance *ci= libeventData.cores[fd];
+            if(fd==ci->getReadFd())
+            {
+                const size_t BUFSIZE= 128;
+                char buf[BUFSIZE];
+                ssize_t sz= read(ci->getReadFd(), buf, sizeof(buf));
+                double time= getTime();
+                if(sz==0)
+                {
+                    flog(LOG_INFO, "core %s (ID %u, pid %d) has exited\n", ci->getName().c_str(), ci->getID(), (int)ci->getPid());
+                    int status;
+                    waitpid(ci->getPid(), &status, 0);  // un-zombify
+                    //~ coresToRemove.push_back(ci);
+                    removeCoreInstance(ci);
+                }
+                else if(sz<0)
+                {
+                    flog(LOG_ERROR, "i/o error, core %s: %s\n", ci->getName().c_str(), strerror(errno));
+                    //~ coresToRemove.push_back(ci);
+                    removeCoreInstance(ci);
+                }
+                else
+                {
+                    for(ssize_t i= 0; i<sz; i++)
+                    {
+                        char c= buf[i];
+                        if(c=='\r') continue;
+                        ci->linebuf+= c;
+                        if(c=='\n')
+                        {
+                            SessionContext *sc= findClient(ci->getLastClientID());
+                            bool clientWasWaiting= (sc && sc->isWaitingForCoreReply());
+                            ci->lineFromCore(ci->linebuf, *this);
+                            ci->linebuf.clear();
+                            // if this was the last line the client was waiting for, 
+                            // execute its queued commands now.
+                            if( clientWasWaiting )
+                                while(!sc->lineQueue.empty() && (!sc->isWaitingForCoreReply()))
+                                {
+                                    string& line= sc->lineQueue.front();
+                                    flog(LOG_INFO, "execing queued line from client: '%s", line.c_str());
+                                    lineFromClient(line, *sc, time, true);
+                                    sc->lineQueue.pop();
+                                }
+                        }
+                    }
+                }
+            }
+            else if(fd==ci->getStderrReadFd())
+            {
+                deque<string> lines= ci->stderrQ.nextLines(ci->getStderrReadFd());
+                for(deque<string>::const_iterator it= lines.begin(); it!=lines.end(); ++it)
+                    flog(LOG_INFO, "[%s] %s", ci->getName().c_str(), it->c_str());
+            }
+        }
+
+        // called when a core pipe is writable (edge triggered)
+        void cb_coreWritable(evutil_socket_t fd, short what)
+        {
+            flog(LOG_INFO, "core writable event\n");
+            libeventData.cores[fd]->flush();
+        }
+
+        // called when something connects to either of the listen sockets
+        template<ConnectionType CONNTYPE>
+        void cb_connect(evutil_socket_t fd, short what)
+        {
+            flog(LOG_INFO, "cb_connect(): fd=%d, what=%d\n", fd, what);
+            SessionContext *sc= acceptConnection(fd, CONNTYPE);
+            if(sc)
+            {
+                sc->sockfdWrite= dup(sc->sockfd);
+                libeventData.sessions[sc->sockfd]= sc;
+                libeventData.sessions[sc->sockfdWrite]= sc;
+                sc->readEvent= event_new(libeventData.base, sc->sockfd, EV_READ|EV_PERSIST, [](evutil_socket_t fd, short what, void *arg)
+                    {
+                        ((Graphserv*)arg)->cb_sessionReadable<CONNTYPE>(fd, what);
+                    }, this);
+                sc->writeEvent= event_new(libeventData.base, sc->sockfdWrite, EV_WRITE|EV_PERSIST|EV_ET, [](evutil_socket_t fd, short what, void *arg)
+                    {
+                        ((Graphserv*)arg)->cb_sessionWritable<CONNTYPE>(fd, what);
+                    }, this);
+                event_add(sc->readEvent, nullptr);
+                event_add(sc->writeEvent, nullptr);
+            }
+            else
+            {
+                flog(LOG_ERROR, _("couldn't create connection.\n"));
+                //~ if(errno==EMFILE)
+                //~ {
+                    //~ double defer= 3.0;
+                    //~ flog(LOG_ERROR, _("too many open files. deferring new connections for %.0f seconds.\n"), defer);
+                    //~ deferNewConnectionsUntil= time + defer;
+                //~ }
+            }
+        }
+        
         bool mainloop_libevent()
         {
 #ifdef DEBUG_EVENTS
@@ -90,11 +246,6 @@ class Graphserv
 
             flog(LOG_INFO, "compiled libevent version: %s\n", LIBEVENT_VERSION);
             flog(LOG_INFO, "runtime libevent version: %s\n", event_get_version());
-            //~ #define LIBEVENT_VERSION_NUMBER 0x02000300
-            //~ #define LIBEVENT_VERSION "2.0.3-alpha"
-            //~ const char *event_get_version(void);
-            //~ ev_uint32_t event_get_version_number(void);
-
             
             event_config *cfg= event_config_new();
             if(!cfg)
@@ -121,25 +272,16 @@ class Graphserv
             event_callback_fn listen_cb= [] (evutil_socket_t fd, short what, void *arg)
             {
                 Graphserv *self= (Graphserv*)arg;
-                flog(LOG_INFO, "listen_cb(): fd=%d, what=%d, arg=%d\n", fd, what, arg);
-                SessionContext *sc= self->acceptConnection(fd, CONN_TCP);
-                if(sc)
-                {
-                    
-                    //~ event *ev= event_new(self->libeventData.base, sc->sockfd, EV_READ|EV_PERSIST, ..., self);
-                }
-                else
-                {
-                    flog(LOG_ERROR, _("couldn't create connection.\n"));
-                    //~ if(errno==EMFILE)
-                    //~ {
-                        //~ double defer= 3.0;
-                        //~ flog(LOG_ERROR, _("too many open files. deferring new connections for %.0f seconds.\n"), defer);
-                        //~ deferNewConnectionsUntil= time + defer;
-                    //~ }
-                }
+                self->cb_connect<CONN_TCP>(fd, what);
+            };
+            event_callback_fn http_cb= [] (evutil_socket_t fd, short what, void *arg)
+            {
+                Graphserv *self= (Graphserv*)arg;
+                self->cb_connect<CONN_HTTP>(fd, what);
             };
             event *ev= event_new(libeventData.base, listenSocket, EV_READ|EV_PERSIST, listen_cb, this);
+            event_add(ev, nullptr);
+            ev= event_new(libeventData.base, httpSocket, EV_READ|EV_PERSIST, http_cb, this);
             event_add(ev, nullptr);
             
             while(true)
@@ -429,13 +571,38 @@ class Graphserv
             return 0;
         }
 
-        // creates a new instance, without starting it.
+        // creates a new instance, without starting it or adding it to the event loop.
         CoreInstance *createCoreInstance(string name= "")
         {
             CoreInstance *inst= new CoreInstance(++coreIDCounter, corePath);
             inst->setName(name);
-            coreInstances.insert( pair<uint32_t,CoreInstance*>(coreIDCounter, inst) );
             return inst;
+        }
+        // add a core instance to the event loop.
+        void addCoreInstance(CoreInstance *inst)
+        {
+            coreInstances.insert( pair<uint32_t,CoreInstance*>(coreIDCounter, inst) );
+            if(useLibevent)
+            {
+                flog(LOG_INFO, "setting up libevent stuff for core %s\n", inst->getName().c_str());
+                libeventData.cores[inst->getReadFd()]= inst;
+                libeventData.cores[inst->getStderrReadFd()]= inst;
+                libeventData.cores[inst->getWriteFd()]= inst;
+                // read event forwarder for child's stdout and stderr handles
+                auto read_cb= [] (evutil_socket_t fd, short what, void *arg)
+                {
+                    ((Graphserv*)arg)->cb_coreReadable(fd, what);
+                };
+                inst->readEvent= event_new(libeventData.base, inst->getReadFd(), EV_READ|EV_PERSIST, read_cb, this);
+                inst->stderrReadEvent= event_new(libeventData.base, inst->getStderrReadFd(), EV_READ|EV_PERSIST, read_cb, this);
+                inst->writeEvent= event_new(libeventData.base, inst->getWriteFd(), EV_WRITE|EV_PERSIST|EV_ET, [](evutil_socket_t fd, short what, void *arg)
+                    {
+                        ((Graphserv*)arg)->cb_coreWritable(fd, what);
+                    }, this);
+                event_add(inst->readEvent, nullptr);
+                event_add(inst->stderrReadEvent, nullptr);
+                event_add(inst->writeEvent, nullptr);
+            }
         }
 
         // removes a core instance from the list and deletes it
@@ -443,6 +610,15 @@ class Graphserv
         {
             map<uint32_t,CoreInstance*>::iterator it= coreInstances.find(core->getID());
             if(it!=coreInstances.end()) coreInstances.erase(it);
+            if(useLibevent)
+            {
+                event_free(core->readEvent);
+                event_free(core->stderrReadEvent);
+                event_free(core->writeEvent);
+                libeventData.cores.erase(core->getReadFd());
+                libeventData.cores.erase(core->getStderrReadFd());
+                libeventData.cores.erase(core->getWriteFd());
+            }
             delete core;
         }
 
@@ -511,6 +687,10 @@ class Graphserv
         struct 
         {
             struct event_base *base;
+            // sockfd => SessionContext
+            std::map<evutil_socket_t, SessionContext*> sessions;
+            // pipe fd => CoreInstance
+            std::map<evutil_socket_t, CoreInstance*> cores;
         } libeventData;
 
         struct CoreCommandInfo
@@ -671,6 +851,16 @@ class Graphserv
             if(it!=sessionContexts.end())
             {
                 flog(LOG_INFO, "removing client %d, %d sessions active\n", it->second->clientID, sessionContexts.size()-1);
+                
+                if(useLibevent)
+                {
+                    event_free(it->second->readEvent);
+                    event_free(it->second->writeEvent);
+                    close(it->second->sockfdWrite);
+                    libeventData.sessions.erase(it->second->sockfd);
+                    libeventData.sessions.erase(it->second->sockfdWrite);
+                }
+
                 CoreInstance *ci;
                 if( it->second->coreID && 
                     (ci= findInstance(it->second->coreID)) )
