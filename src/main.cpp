@@ -36,13 +36,14 @@
 #include <netinet/in.h>
 #include <sys/wait.h>
 #include <sys/time.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <libgen.h>
 #include <exception>
 #include <stdexcept>
 #include <signal.h>
-//#include <siginfo.h>
+#include <event2/event.h>
 
 #include "clibase.h"
 #include "const.h"
@@ -840,10 +841,11 @@ int main(int argc, char *argv[])
     string htpwFilename= DEFAULT_HTPASSWD_FILENAME;
     string groupFilename= DEFAULT_GROUP_FILENAME;
     string corePath= DEFAULT_CORE_PATH;
+    bool useLibevent= false;
 
     // parse the command line.
     char opt;
-    while( (opt= getopt(argc, argv, "ht:H:p:g:c:l:"))!=-1 )
+    while( (opt= getopt(argc, argv, "ht:H:p:g:c:l:e"))!=-1 )
         switch(opt)
         {
             case '?':
@@ -888,6 +890,9 @@ int main(int argc, char *argv[])
                         exit(1);
                 }
                 break;
+            case 'e':
+                useLibevent= true;
+                break;
         }
 
     if( !(tcpPort || httpPort) )
@@ -905,7 +910,7 @@ int main(int argc, char *argv[])
 //    handleSigchld();
 
     // instantiate app and kick off main loop.
-    Graphserv s(tcpPort, httpPort, htpwFilename, groupFilename, corePath);
+    Graphserv s(tcpPort, httpPort, htpwFilename, groupFilename, corePath, useLibevent);
     if(!s.run()) return 1;  // exit with error.
 
     return 0;

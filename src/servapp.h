@@ -22,8 +22,8 @@
 class Graphserv
 {
     public:
-        Graphserv(int _tcpPort, int _httpPort, const string& htpwFilename, const string& groupFilename, const string& _corePath):
-            tcpPort(_tcpPort), httpPort(_httpPort), corePath(_corePath),
+        Graphserv(int tcpPort_, int httpPort_, const string& htpwFilename, const string& groupFilename, const string& corePath_, bool useLibevent_):
+            tcpPort(tcpPort_), httpPort(httpPort_), corePath(corePath_), useLibevent(useLibevent_),
             coreIDCounter(0), sessionIDCounter(0),
             cli(*this), linesFromClients(0), quit(false)
         {
@@ -57,23 +57,104 @@ class Graphserv
 
         bool run()
         {
-            int listenSocket= (tcpPort? openListenSocket(tcpPort): 0);
+            listenSocket= (tcpPort? openListenSocket(tcpPort): 0);
             if(listenSocket<0)
             {
                 flog(LOG_CRIT, _("couldn't create socket for TCP connections (port %d).\n"), tcpPort);
                 return false;
             }
-            int httpSocket= (httpPort? openListenSocket(httpPort): 0);
+            httpSocket= (httpPort? openListenSocket(httpPort): 0);
             if(httpSocket<0)
             {
                 flog(LOG_CRIT, _("couldn't create socket for HTTP connections (port %d).\n"), httpPort);
                 return false;
             }
             
+            struct rlimit rlim= { 0 };
+            getrlimit(RLIMIT_NOFILE, &rlim);
+            flog(LOG_INFO, "RLIMIT_NOFILE: cur %ld, max %ld\n", long(rlim.rlim_cur), long(rlim.rlim_max));
+            
             handleSigint();
+         
+            if(useLibevent)
+                return mainloop_libevent();
+            else
+                return mainloop_select();
+        }
+        
+        bool mainloop_libevent()
+        {
+#ifdef DEBUG_EVENTS
+            event_enable_debug_mode();
+#endif
 
+            flog(LOG_INFO, "compiled libevent version: %s\n", LIBEVENT_VERSION);
+            flog(LOG_INFO, "runtime libevent version: %s\n", event_get_version());
+            //~ #define LIBEVENT_VERSION_NUMBER 0x02000300
+            //~ #define LIBEVENT_VERSION "2.0.3-alpha"
+            //~ const char *event_get_version(void);
+            //~ ev_uint32_t event_get_version_number(void);
+
+            
+            event_config *cfg= event_config_new();
+            if(!cfg)
+                throw std::runtime_error("event_config_new() failed");
+            event_config_require_features(cfg, EV_FEATURE_ET); //|EV_FEATURE_FDS); // 
+            if(!(libeventData.base= event_base_new_with_config(cfg)))
+                throw std::runtime_error("event_base_new_with_config() failed");
+            event_config_free(cfg);
+            
+            int i;
+            const char **methods = event_get_supported_methods();
+            flog(LOG_INFO, "Starting Libevent %s.  Available methods are:\n", event_get_version());
+            for (i=0; methods[i] != NULL; ++i)
+                flog(LOG_INFO, "    %s\n", methods[i]);
+            flog(LOG_INFO, "Using Libevent with backend method %s.\n", event_base_get_method(libeventData.base));
+            int f = event_base_get_features(libeventData.base);
+            if ((f & EV_FEATURE_ET))
+                flog(LOG_INFO, "  Edge-triggered events are supported.\n");
+            if ((f & EV_FEATURE_O1))
+                flog(LOG_INFO, "  O(1) event notification is supported.\n");
+            if ((f & EV_FEATURE_FDS))
+                flog(LOG_INFO, "  All FD types are supported.\n");
+            
+            event_callback_fn listen_cb= [] (evutil_socket_t fd, short what, void *arg)
+            {
+                Graphserv *self= (Graphserv*)arg;
+                flog(LOG_INFO, "listen_cb(): fd=%d, what=%d, arg=%d\n", fd, what, arg);
+                SessionContext *sc= self->acceptConnection(fd, CONN_TCP);
+                if(sc)
+                {
+                    
+                    //~ event *ev= event_new(self->libeventData.base, sc->sockfd, EV_READ|EV_PERSIST, ..., self);
+                }
+                else
+                {
+                    flog(LOG_ERROR, _("couldn't create connection.\n"));
+                    //~ if(errno==EMFILE)
+                    //~ {
+                        //~ double defer= 3.0;
+                        //~ flog(LOG_ERROR, _("too many open files. deferring new connections for %.0f seconds.\n"), defer);
+                        //~ deferNewConnectionsUntil= time + defer;
+                    //~ }
+                }
+            };
+            event *ev= event_new(libeventData.base, listenSocket, EV_READ|EV_PERSIST, listen_cb, this);
+            event_add(ev, nullptr);
+            
+            while(true)
+            {
+                event_base_loop(libeventData.base, EVLOOP_ONCE);
+            }
+            
+            throw std::runtime_error("mainloop_libevent: not implemented");
+        }
+
+        bool mainloop_select()
+        {
             fd_set readfds, writefds;
             int maxfd;
+            double deferNewConnectionsUntil= 0; // defer accept() calls. set if open files limit is hit.
 
             flog(LOG_INFO, "entering main loop. TCP port: %d, HTTP port: %d\n", tcpPort, httpPort);
             while(!quit)
@@ -85,8 +166,12 @@ class Graphserv
 
                 maxfd= 0;
 
-                if(listenSocket) fd_add(readfds, listenSocket, maxfd);
-                if(httpSocket) fd_add(readfds, httpSocket, maxfd);
+                // when open files limit is hit, new connections will be deferred for a few seconds
+                if(deferNewConnectionsUntil < time)
+                {
+                    if(listenSocket) fd_add(readfds, listenSocket, maxfd);
+                    if(httpSocket) fd_add(readfds, httpSocket, maxfd);
+                }
 
                 // deferred removal of clients
                 for(set<uint32_t>::iterator i= clientsToRemove.begin(); i!=clientsToRemove.end(); ++i)
@@ -101,8 +186,8 @@ class Graphserv
                     if(d>10.0)
                     {
                         sc->stats.normalize(time);
-//                        flog(LOG_INFO, "client %u: bytesSent %.2f, linesQueued %.2f, coreCommandsSent %.2f, servCommandsSent %.2f\n",
-//                             sc->clientID, sc->stats.bytesSent, sc->stats.linesQueued, sc->stats.coreCommandsSent, sc->stats.servCommandsSent);
+                        // flog(LOG_INFO, "client %u: bytesSent %.2f, linesQueued %.2f, coreCommandsSent %.2f, servCommandsSent %.2f\n",
+                        //      sc->clientID, sc->stats.bytesSent, sc->stats.linesQueued, sc->stats.coreCommandsSent, sc->stats.servCommandsSent);
                         // testing this to prevent flooding.
                         //~ if(sc->stats.linesQueued>5000) { flog(LOG_INFO, "choke\n"); sc->chokeTime= time+10.0; }
                         sc->stats.reset();
@@ -162,15 +247,22 @@ class Graphserv
 
                 time= getTime();
 
-                // check for incoming connections.
-
-                if(listenSocket && FD_ISSET(listenSocket, &readfds))
-                    if(!acceptConnection(listenSocket, CONN_TCP))
-                        flog(LOG_ERROR, _("couldn't create connection.\n"));
-
-                if(httpSocket && FD_ISSET(httpSocket, &readfds))
-                    if(!acceptConnection(httpSocket, CONN_HTTP))
-                        flog(LOG_ERROR, _("couldn't create connection.\n"));
+                // check for incoming line-based or http connections.
+                struct { int socket; ConnectionType conntype; } socks[]= { { listenSocket, CONN_TCP }, { httpSocket, CONN_HTTP } };
+                for(auto& i: socks)
+                {
+                    if(i.socket && FD_ISSET(i.socket, &readfds))
+                        if(!acceptConnection(i.socket, i.conntype))
+                        {
+                            flog(LOG_ERROR, _("couldn't create connection.\n"));
+                            if(errno==EMFILE)
+                            {
+                                double defer= 3.0;
+                                flog(LOG_ERROR, _("too many open files. deferring new connections for %.0f seconds.\n"), defer);
+                                deferNewConnectionsUntil= time + defer;
+                            }
+                        }
+                }
 
                 // loop through all the session contexts, handle incoming data, flush outgoing data if possible.
                 for( map<uint32_t,SessionContext*>::iterator it= sessionContexts.begin(); it!=sessionContexts.end(); ++it )
@@ -189,7 +281,7 @@ class Graphserv
                         }
                         else if(sz<0)
                         {
-                            flog(LOG_ERROR, _("i/o error, client %d: %s\n"), sc.clientID, strerror(errno));
+                            flog(LOG_ERROR, _("recv() error, client %d, %d bytes in write buffer, %s\n"), sc.clientID, sc.getWritebufferSize(), strerror(errno));
                             clientsToRemove.insert(sc.clientID);
                         }
                         else
@@ -413,6 +505,13 @@ class Graphserv
     private:
         int tcpPort, httpPort;
         string corePath;
+        bool useLibevent;
+        int listenSocket= -1;
+        int httpSocket= -1;
+        struct 
+        {
+            struct event_base *base;
+        } libeventData;
 
         struct CoreCommandInfo
         {
@@ -542,9 +641,9 @@ class Graphserv
             else
             {
                 // add new connection
-				char addrstr[256];
-                getnameinfo(&sa, addrlen, addrstr, sizeof(addrstr), NULL, 0, 0);
-                flog(LOG_INFO, "new connection from %s, type %s, socket=%d\n", addrstr, (type==CONN_TCP? "TCP": "HTTP"), newConnection);
+				//~ char addrstr[256];
+                //~ getnameinfo(&sa, addrlen, addrstr, sizeof(addrstr), NULL, 0, 0);
+                flog(LOG_INFO, "new %s connection, socket=%d, %d connections active\n", (type==CONN_TCP? "TCP": "HTTP"), newConnection, sessionContexts.size()+1);
                 return createSession(newConnection, type);
             }
         }
@@ -571,7 +670,7 @@ class Graphserv
             map<uint32_t,SessionContext*>::iterator it= sessionContexts.find(sessionID);
             if(it!=sessionContexts.end())
             {
-                flog(LOG_INFO, "removing client %d\n", it->second->clientID);
+                flog(LOG_INFO, "removing client %d, %d sessions active\n", it->second->clientID, sessionContexts.size()-1);
                 CoreInstance *ci;
                 if( it->second->coreID && 
                     (ci= findInstance(it->second->coreID)) )

@@ -6,7 +6,7 @@ else
 endif
 
 CCFLAGS=$(CFLAGS) -Wall -Wstrict-overflow=3 -std=c++0x -Igraphcore/src -DSYSTEMPAGESIZE=$(shell getconf PAGESIZE)
-LDFLAGS=-lcrypt $(SOCKETLIB)
+LDFLAGS=-lcrypt $(SOCKETLIB) -levent
 
 all: 		Release Debug
 
