@@ -212,14 +212,14 @@ class Graphserv
             SessionContext *sc= acceptConnection(fd, CONNTYPE);
             if(sc)
             {
-                sc->sockfdWrite= dup(sc->sockfd);
+                sc->sockfdRead= dup(sc->sockfd);
                 libeventData.sessions[sc->sockfd]= sc;
-                libeventData.sessions[sc->sockfdWrite]= sc;
-                sc->readEvent= event_new(libeventData.base, sc->sockfd, EV_READ|EV_PERSIST, [](evutil_socket_t fd, short what, void *arg)
+                libeventData.sessions[sc->sockfdRead]= sc;
+                sc->readEvent= event_new(libeventData.base, sc->sockfdRead, EV_READ|EV_PERSIST, [](evutil_socket_t fd, short what, void *arg)
                     {
                         ((Graphserv*)arg)->cb_sessionReadable<CONNTYPE>(fd, what);
                     }, this);
-                sc->writeEvent= event_new(libeventData.base, sc->sockfdWrite, EV_WRITE|EV_PERSIST|EV_ET, [](evutil_socket_t fd, short what, void *arg)
+                sc->writeEvent= event_new(libeventData.base, sc->sockfd, EV_WRITE|EV_PERSIST|EV_ET, [](evutil_socket_t fd, short what, void *arg)
                     {
                         ((Graphserv*)arg)->cb_sessionWritable<CONNTYPE>(fd, what);
                     }, this);
@@ -581,7 +581,7 @@ class Graphserv
         // add a core instance to the event loop.
         void addCoreInstance(CoreInstance *inst)
         {
-            coreInstances.insert( pair<uint32_t,CoreInstance*>(coreIDCounter, inst) );
+            coreInstances.insert( pair<uint32_t,CoreInstance*>(inst->getID(), inst) );
             if(useLibevent)
             {
                 flog(LOG_INFO, "setting up libevent stuff for core %s\n", inst->getName().c_str());
@@ -852,13 +852,17 @@ class Graphserv
             {
                 flog(LOG_INFO, "removing client %d, %d sessions active\n", it->second->clientID, sessionContexts.size()-1);
                 
+                shutdown(it->second->sockfd, SHUT_RDWR);
+
                 if(useLibevent)
                 {
                     event_free(it->second->readEvent);
                     event_free(it->second->writeEvent);
-                    close(it->second->sockfdWrite);
+                    shutdown(it->second->sockfdRead, SHUT_RDWR);
+                    setNonblocking(it->second->sockfdRead, false);
+                    close(it->second->sockfdRead);
                     libeventData.sessions.erase(it->second->sockfd);
-                    libeventData.sessions.erase(it->second->sockfdWrite);
+                    libeventData.sessions.erase(it->second->sockfdRead);
                 }
 
                 CoreInstance *ci;
