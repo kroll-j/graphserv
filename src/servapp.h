@@ -682,8 +682,8 @@ class Graphserv
         int tcpPort, httpPort;
         string corePath;
         bool useLibevent;
-        int listenSocket= -1;
-        int httpSocket= -1;
+        int listenSocket;
+        int httpSocket;
         struct 
         {
             struct event_base *base;

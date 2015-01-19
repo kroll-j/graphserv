@@ -39,9 +39,9 @@ struct SessionContext: public NonblockWriter
     
     CommandQEntry *curCommand;  // if non-NULL, command which is currently being transferred to the server but not yet processed
     
-    event *readEvent= 0, *writeEvent= 0;    // libevent read and write events for sockfd
+    event *readEvent, *writeEvent;          // libevent read and write events for sockfd
     int sockfdRead;                         // libevent doesn't support mixing edge- and level triggered events on the same fd, so
-                                            // we need to dup() the socket fd for the write event...
+                                            // we need to dup() the socket fd for the read event...
     
     // some statistics about this connection. currently mostly used for debugging.
     struct Stats
